@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { Editor } from './components/Editor'
+import { CommandPalette } from './components/CommandPalette'
 import {
   fetchWorkspaceRemote,
   pingApi,
@@ -8,9 +9,22 @@ import {
   type SyncStatus,
 } from './lib/api'
 import { downloadMarkdown } from './lib/markdown'
-import { createEmptyPage, loadWorkspace, saveWorkspace } from './lib/storage'
-import { collectDescendantIds, getBreadcrumb } from './lib/pages'
-import type { Block, Workspace } from './types'
+import {
+  activePages,
+  collectDescendantIds,
+  getBreadcrumb,
+  nextOrder,
+  pushRecent,
+  reorderSiblingPages,
+} from './lib/pages'
+import { createId } from './lib/id'
+import {
+  createEmptyPage,
+  loadWorkspace,
+  normalizeWorkspace,
+  saveWorkspace,
+} from './lib/storage'
+import type { Page, Workspace } from './types'
 
 type Theme = 'light' | 'dark'
 
@@ -38,11 +52,15 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(() => readTheme())
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('offline')
   const [hydrated, setHydrated] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [mobileNav, setMobileNav] = useState(false)
 
-  const activePage = useMemo(
-    () => workspace.pages.find((p) => p.id === workspace.activePageId) ?? workspace.pages[0],
-    [workspace],
-  )
+  const livePages = useMemo(() => activePages(workspace.pages), [workspace.pages])
+
+  const activePage = useMemo(() => {
+    const found = livePages.find((p) => p.id === workspace.activePageId)
+    return found ?? livePages[0] ?? null
+  }, [livePages, workspace.activePageId])
 
   const breadcrumb = useMemo(
     () => (activePage ? getBreadcrumb(workspace.pages, activePage.id) : []),
@@ -66,8 +84,7 @@ export default function App() {
       if (cancelled) return
 
       if (remote && Array.isArray(remote.pages) && remote.pages.length > 0) {
-        setWorkspace(remote)
-        saveWorkspace(remote)
+        setWorkspace(normalizeWorkspace(remote))
         setSyncStatus('online')
       } else {
         const local = loadWorkspace()
@@ -114,7 +131,29 @@ export default function App() {
     localStorage.setItem('segara-notes:theme', theme)
   }, [theme])
 
-  function patchActive(partial: Partial<{ title: string; blocks: Block[] }>) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  function openPage(id: string) {
+    setWorkspace((prev) => ({
+      ...prev,
+      activePageId: id,
+      recentPageIds: pushRecent(prev.recentPageIds ?? [], id),
+      pages: prev.pages.map((p) =>
+        p.id === id ? { ...p, updatedAt: Date.now() } : p,
+      ),
+    }))
+  }
+
+  function patchActive(partial: Partial<Page>) {
     setWorkspace((prev) => ({
       ...prev,
       pages: prev.pages.map((page) => {
@@ -129,32 +168,75 @@ export default function App() {
   }
 
   function createRootPage() {
-    const page = createEmptyPage()
+    const page = createEmptyPage('Halaman tanpa judul', null, nextOrder(workspace.pages, null))
     setWorkspace((prev) => ({
       ...prev,
       activePageId: page.id,
       pages: [page, ...prev.pages],
+      recentPageIds: pushRecent(prev.recentPageIds ?? [], page.id),
     }))
   }
 
   function createChildPage(parentId: string) {
-    const page = createEmptyPage('Sub-halaman', parentId)
+    const page = createEmptyPage('Sub-halaman', parentId, nextOrder(workspace.pages, parentId))
     setWorkspace((prev) => ({
       ...prev,
       activePageId: page.id,
       pages: [page, ...prev.pages],
+      recentPageIds: pushRecent(prev.recentPageIds ?? [], page.id),
     }))
   }
 
-  function deletePage(id: string) {
+  function duplicateActivePage() {
+    if (!activePage) return
+    const copy: Page = {
+      ...activePage,
+      id: createId('page'),
+      title: `${activePage.title || 'Tanpa judul'} (salinan)`,
+      favorite: false,
+      deletedAt: null,
+      order: nextOrder(workspace.pages, activePage.parentId),
+      updatedAt: Date.now(),
+      blocks: activePage.blocks.map((b) => ({ ...b, id: createId('block') })),
+    }
+    setWorkspace((prev) => ({
+      ...prev,
+      activePageId: copy.id,
+      pages: [copy, ...prev.pages],
+      recentPageIds: pushRecent(prev.recentPageIds ?? [], copy.id),
+    }))
+  }
+
+  function softDeletePage(id: string) {
     setWorkspace((prev) => {
       const removeIds = collectDescendantIds(prev.pages, id)
-      if (removeIds.size >= prev.pages.length) return prev
-      const pages = prev.pages.filter((p) => !removeIds.has(p.id))
-      const activePageId = removeIds.has(prev.activePageId)
-        ? pages[0].id
-        : prev.activePageId
+      const liveCount = prev.pages.filter((p) => !p.deletedAt && !removeIds.has(p.id)).length
+      if (liveCount < 1) return prev
+      const now = Date.now()
+      const pages = prev.pages.map((p) =>
+        removeIds.has(p.id) ? { ...p, deletedAt: now, favorite: false } : p,
+      )
+      const live = pages.filter((p) => !p.deletedAt)
+      const activePageId = removeIds.has(prev.activePageId) ? live[0].id : prev.activePageId
       return { ...prev, pages, activePageId }
+    })
+  }
+
+  function restorePage(id: string) {
+    setWorkspace((prev) => ({
+      ...prev,
+      pages: prev.pages.map((p) => (p.id === id ? { ...p, deletedAt: null } : p)),
+      activePageId: id,
+    }))
+  }
+
+  function purgePage(id: string) {
+    setWorkspace((prev) => {
+      const removeIds = collectDescendantIds(prev.pages, id)
+      return {
+        ...prev,
+        pages: prev.pages.filter((p) => !removeIds.has(p.id)),
+      }
     })
   }
 
@@ -166,23 +248,50 @@ export default function App() {
         pages={workspace.pages}
         activePageId={activePage.id}
         theme={theme}
-        onSelect={(id) => setWorkspace((prev) => ({ ...prev, activePageId: id }))}
+        mobileOpen={mobileNav}
+        onCloseMobile={() => setMobileNav(false)}
+        onSelect={openPage}
         onCreateRoot={createRootPage}
         onCreateChild={createChildPage}
-        onDelete={deletePage}
+        onSoftDelete={softDeletePage}
+        onRestore={restorePage}
+        onPurge={purgePage}
+        onToggleFavorite={(id) =>
+          setWorkspace((prev) => ({
+            ...prev,
+            pages: prev.pages.map((p) =>
+              p.id === id ? { ...p, favorite: !p.favorite, updatedAt: Date.now() } : p,
+            ),
+          }))
+        }
+        onReorder={(fromId, toId) =>
+          setWorkspace((prev) => ({
+            ...prev,
+            pages: reorderSiblingPages(prev.pages, fromId, toId),
+          }))
+        }
         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+        onOpenSearch={() => setPaletteOpen(true)}
       />
 
       <main className="workspace">
         <div className="topbar">
           <div className="topbar-hints">
+            <button
+              type="button"
+              className="icon-btn mobile-nav-btn"
+              aria-label="Menu"
+              onClick={() => setMobileNav(true)}
+            >
+              ☰
+            </button>
             <span className="hint-chip">
-              <kbd>/</kbd> menu blok
+              <kbd>/</kbd> blok
             </span>
-            <span className="hint-chip">
-              <kbd>⋮⋮</kbd> seret urutan
+            <span className="hint-chip hide-sm">
+              <kbd>Ctrl+K</kbd> cari
             </span>
-            <span className={`hint-chip sync-chip sync-${syncStatus}`} title="Status sinkronisasi API">
+            <span className={`hint-chip sync-chip sync-${syncStatus}`} title="Status sync">
               {syncLabel(syncStatus)}
             </span>
           </div>
@@ -197,13 +306,23 @@ export default function App() {
         <div className="editor-scroll">
           <Editor
             page={activePage}
+            pages={livePages}
             breadcrumb={breadcrumb}
-            onChangeTitle={(title) => patchActive({ title })}
+            onChangePage={(partial) => patchActive(partial)}
             onChangeBlocks={(blocks) => patchActive({ blocks })}
-            onSelectPage={(id) => setWorkspace((prev) => ({ ...prev, activePageId: id }))}
+            onSelectPage={openPage}
+            onCreateChild={createChildPage}
+            onDuplicatePage={duplicateActivePage}
           />
         </div>
       </main>
+
+      <CommandPalette
+        open={paletteOpen}
+        workspace={workspace}
+        onClose={() => setPaletteOpen(false)}
+        onSelect={openPage}
+      />
     </div>
   )
 }

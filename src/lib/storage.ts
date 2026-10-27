@@ -1,8 +1,18 @@
-import type { Page, Workspace } from '../types'
+import type { Block, Page, Workspace } from '../types'
 import { createBlock } from './blocks'
 import { createId } from './id'
 
 const STORAGE_KEY = 'segara-notes:v1'
+
+export const COVER_PRESETS = [
+  { id: 'teal', label: 'Teal', css: 'linear-gradient(120deg, #0f766e 0%, #99f6e4 100%)' },
+  { id: 'dusk', label: 'Dusk', css: 'linear-gradient(120deg, #1e3a5f 0%, #f59e0b 100%)' },
+  { id: 'mist', label: 'Mist', css: 'linear-gradient(120deg, #64748b 0%, #e2e8f0 100%)' },
+  { id: 'coral', label: 'Coral', css: 'linear-gradient(120deg, #9a3412 0%, #fdba74 100%)' },
+  { id: 'forest', label: 'Forest', css: 'linear-gradient(120deg, #14532d 0%, #86efac 100%)' },
+] as const
+
+export const PAGE_ICONS = ['🌊', '📄', '📎', '⭐', '🧠', '📌', '🗂', '💡', '🏠', '🚀', '📝', '🎯']
 
 function starterPage(): Page {
   const now = Date.now()
@@ -10,19 +20,24 @@ function starterPage(): Page {
     id: createId('page'),
     title: 'Selamat datang',
     icon: '🌊',
+    cover: 'teal',
     parentId: null,
     updatedAt: now,
+    favorite: true,
+    deletedAt: null,
+    order: 0,
     blocks: [
       createBlock('heading1', 'Segara Notes'),
       createBlock(
         'paragraph',
-        'Catatan bergaya Notion. Ketik / untuk blok, seret ⋮⋮ untuk mengurutkan, dan buat sub-halaman dari sidebar.',
+        'Mirip Notion: ketik / untuk blok, **Ctrl+K** untuk cari, seret ⋮⋮, dan @ untuk taut ke halaman.',
       ),
+      createBlock('callout', 'Pilih teks lalu pakai toolbar untuk bold / italic / code / link.'),
       createBlock('heading2', 'Coba ini'),
-      createBlock('bullet', 'Enter → blok baru'),
-      createBlock('bullet', 'Backspace di baris kosong → hapus blok'),
-      createBlock('bullet', 'Seret handle ⋮⋮ → ubah urutan'),
-      createBlock('todo', 'Centang to-do ini'),
+      createBlock('bullet', 'Tab / Shift+Tab → indent list'),
+      createBlock('todo', 'Tambah cover & icon di atas judul'),
+      createBlock('numbered', 'Export Markdown dari topbar'),
+      createBlock('quote', 'Catatan yang rapi dimulai dari satu blok.'),
       createBlock('code', 'const hello = "segara"'),
     ],
   }
@@ -31,13 +46,18 @@ function starterPage(): Page {
 export function createEmptyPage(
   title = 'Halaman tanpa judul',
   parentId: string | null = null,
+  order = 0,
 ): Page {
   return {
     id: createId('page'),
     title,
     icon: parentId ? '📎' : '📄',
+    cover: null,
     parentId,
     updatedAt: Date.now(),
+    favorite: false,
+    deletedAt: null,
+    order,
     blocks: [createBlock('paragraph', '')],
   }
 }
@@ -45,41 +65,70 @@ export function createEmptyPage(
 export function createDefaultWorkspace(): Workspace {
   const page = starterPage()
   return {
-    version: 2,
+    version: 3,
     activePageId: page.id,
     pages: [page],
+    recentPageIds: [page.id],
   }
 }
 
-function migrate(raw: unknown): Workspace {
+function normalizeBlock(raw: Partial<Block>): Block {
+  const type = raw.type ?? 'paragraph'
+  return {
+    id: raw.id ?? createId('block'),
+    type,
+    text: raw.text ?? '',
+    indent: raw.indent ?? 0,
+    checked: type === 'todo' ? Boolean(raw.checked) : undefined,
+    collapsed: type === 'toggle' ? Boolean(raw.collapsed) : undefined,
+    calloutTone: type === 'callout' ? raw.calloutTone ?? 'info' : undefined,
+    imageUrl: type === 'image' ? raw.imageUrl ?? '' : undefined,
+  }
+}
+
+export function normalizeWorkspace(raw: unknown): Workspace {
   const data = raw as Partial<Workspace> & { pages?: Array<Partial<Page>> }
   if (!data?.pages?.length) return createDefaultWorkspace()
 
-  const pages: Page[] = data.pages.map((page) => ({
+  const pages: Page[] = data.pages.map((page, index) => ({
     id: page.id ?? createId('page'),
     title: page.title ?? 'Tanpa judul',
     icon: page.icon ?? '📄',
+    cover: page.cover === undefined ? null : page.cover,
     parentId: page.parentId === undefined ? null : page.parentId,
     updatedAt: page.updatedAt ?? Date.now(),
+    favorite: Boolean(page.favorite),
+    deletedAt: page.deletedAt ?? null,
+    order: typeof page.order === 'number' ? page.order : index,
     blocks:
       page.blocks && page.blocks.length > 0
-        ? page.blocks
+        ? page.blocks.map((b) => normalizeBlock(b as Partial<Block>))
         : [createBlock('paragraph', '')],
   }))
 
+  const live = pages.filter((p) => !p.deletedAt)
   const activePageId =
-    data.activePageId && pages.some((p) => p.id === data.activePageId)
+    data.activePageId && live.some((p) => p.id === data.activePageId)
       ? data.activePageId
-      : pages[0].id
+      : live[0]?.id ?? pages[0].id
 
-  return { version: 2, activePageId, pages }
+  const recentPageIds = (data.recentPageIds ?? [])
+    .filter((id) => live.some((p) => p.id === id))
+    .slice(0, 8)
+
+  return {
+    version: 3,
+    activePageId,
+    pages,
+    recentPageIds: recentPageIds.length ? recentPageIds : [activePageId],
+  }
 }
 
 export function loadWorkspace(): Workspace {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return createDefaultWorkspace()
-    return migrate(JSON.parse(raw))
+    return normalizeWorkspace(JSON.parse(raw))
   } catch {
     return createDefaultWorkspace()
   }
@@ -87,4 +136,9 @@ export function loadWorkspace(): Workspace {
 
 export function saveWorkspace(workspace: Workspace): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace))
+}
+
+export function coverCss(coverId: string | null): string | null {
+  if (!coverId) return null
+  return COVER_PRESETS.find((c) => c.id === coverId)?.css ?? null
 }

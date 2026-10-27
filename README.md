@@ -1,85 +1,40 @@
 ﻿# Segara Notes
 
-Catatan bergaya Notion: **sidebar bersarang**, **block editor**, **slash menu**, dan **drag & drop**.  
-Data di **localStorage**, dengan sync opsional ke **API Prisma + SQLite**.
+Catatan bergaya Notion: block editor, halaman bersarang, slash menu, favorit, trash, dan sync API opsional.
 
 ## Fitur
 
-- Halaman root + **sub-halaman** (nested) + breadcrumb
-- Blok: paragraf, H1, H2, bullet, to-do, code
-- Ketik `/` untuk ganti jenis blok
-- Enter = blok baru · Backspace di baris kosong = hapus blok
-- Seret handle `⋮⋮` untuk mengurutkan blok
-- Tema terang / gelap
-- **Export Markdown** (`.md`)
-- Sync workspace ke API (fallback lokal jika API mati)
+- Halaman nested + breadcrumb + drag reorder sidebar
+- Favorit, soft-delete (Trash), restore / hapus permanen
+- Cover gradient + icon emoji per halaman
+- Blok: teks, H1–H3, bullet, numbered, to-do, code, quote, callout, toggle, divider, image
+- Slash menu berkelompok + navigasi keyboard
+- Inline format (bold / italic / code / link) lewat toolbar seleksi
+- Indent list (`Tab` / `Shift+Tab`)
+- Mention halaman dengan `@`
+- Cari cepat `Ctrl+K` / `Cmd+K`
+- Drag & drop urutan blok + menu `⋯` (duplikat / hapus / indent)
+- Tema terang / gelap, export Markdown, sync Prisma/SQLite
 - UI guide: [UI-GUIDE.md](./UI-GUIDE.md)
 
 ## Stack
 
 - React 19 + TypeScript + Vite
-- Express + Prisma 7 + SQLite (`better-sqlite3`)
-- CSS variables (tanpa UI library)
+- Express + Prisma 7 + SQLite
+- CSS variables
 
 ## Jalankan
 
 ```bash
 npm install
+npm run dev:api   # terminal 1
+npm run dev       # terminal 2
 ```
 
-Terminal 1 — API (port 8787):
-
-```bash
-npm run dev:api
-```
-
-Terminal 2 — frontend:
-
-```bash
-npm run dev
-```
-
-Tanpa API, aplikasi tetap jalan lewat localStorage (status **Lokal saja**).
-
-Database:
-
-```bash
-npm run db:migrate
-npm run db:generate
-```
-
-Salin `.env.example` → `.env` bila perlu.
-
-Build produksi frontend:
-
-```bash
-npm run build
-npm run preview
-```
-
-## API
-
-| Method | Path | Keterangan |
-|--------|------|------------|
-| GET | `/api/health` | health check |
-| GET | `/api/workspace` | ambil snapshot JSON |
-| PUT | `/api/workspace` | simpan snapshot JSON |
-
-## Struktur
-
-```
-server/         Express + Prisma
-prisma/         schema + migrations
-src/
-  components/   Sidebar, Editor, BlockRow, SlashMenu
-  lib/          storage, api, markdown, blocks, pages, id
-  styles/       tokens + app
-  types.ts
-UI-GUIDE.md
-```
+Tanpa API, data tetap di localStorage.
 
 ## Roadmap berikutnya
 
-1. Auth
-2. Deploy (Vercel + DB hosted)
-3. Inline formatting (bold/italic)
+1. Auth + share link
+2. Database / board view
+3. Realtime kolaborasi

@@ -1,18 +1,31 @@
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
-import { filterSlashItems } from '../lib/blocks'
-import type { Block, BlockType } from '../types'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+} from 'react'
+import { BLOCK_GLYPH, clampIndent, filterSlashItems } from '../lib/blocks'
+import { wrapLink, wrapSelection } from '../lib/format'
+import type { Block, BlockType, Page } from '../types'
+import { FormatToolbar } from './FormatToolbar'
 import { SlashMenu } from './SlashMenu'
 
 type Props = {
   block: Block
+  numberLabel?: number
+  pages: Page[]
   autoFocus?: boolean
   isDragging?: boolean
   isDragOver?: boolean
-  onChangeText: (text: string) => void
-  onToggleTodo: () => void
+  onChange: (patch: Partial<Block>) => void
   onEnter: () => void
   onBackspaceEmpty: () => void
-  onChangeType: (type: BlockType, text?: string) => void
+  onIndent: (delta: number) => void
+  onDuplicate: () => void
+  onDelete: () => void
+  onTurnInto: (type: BlockType) => void
+  onMentionPage: (page: Page) => void
   onDragStart: (id: string) => void
   onDragOver: (id: string) => void
   onDrop: (id: string) => void
@@ -27,14 +40,19 @@ function autoResize(el: HTMLTextAreaElement | null) {
 
 export function BlockRow({
   block,
+  numberLabel = 1,
+  pages,
   autoFocus,
   isDragging,
   isDragOver,
-  onChangeText,
-  onToggleTodo,
+  onChange,
   onEnter,
   onBackspaceEmpty,
-  onChangeType,
+  onIndent,
+  onDuplicate,
+  onDelete,
+  onTurnInto,
+  onMentionPage,
   onDragStart,
   onDragOver,
   onDrop,
@@ -44,8 +62,22 @@ export function BlockRow({
   const [slashOpen, setSlashOpen] = useState(false)
   const [slashQuery, setSlashQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
+  const [showFormat, setShowFormat] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [mentionIndex, setMentionIndex] = useState(0)
 
   const items = filterSlashItems(slashQuery)
+  const indent = clampIndent(block.indent)
+  const mentionHits = pages
+    .filter((p) => !p.deletedAt)
+    .filter((p) => {
+      const q = mentionQuery.toLowerCase()
+      if (!q) return true
+      return (p.title || '').toLowerCase().includes(q) || p.icon.includes(q)
+    })
+    .slice(0, 8)
 
   useEffect(() => {
     autoResize(ref.current)
@@ -59,24 +91,123 @@ export function BlockRow({
     setActiveIndex(0)
   }, [slashQuery])
 
-  function syncSlash(value: string) {
+  useEffect(() => {
+    setMentionIndex(0)
+  }, [mentionQuery])
+
+  function syncMenus(value: string, caret: number) {
     if (value.startsWith('/')) {
       setSlashOpen(true)
       setSlashQuery(value.slice(1))
-    } else {
-      setSlashOpen(false)
-      setSlashQuery('')
+      setMentionOpen(false)
+      return
     }
+    setSlashOpen(false)
+    setSlashQuery('')
+
+    const before = value.slice(0, caret)
+    const at = before.lastIndexOf('@')
+    if (at >= 0 && (at === 0 || /\s/.test(before[at - 1]!))) {
+      const q = before.slice(at + 1)
+      if (!q.includes(' ')) {
+        setMentionOpen(true)
+        setMentionQuery(q)
+        return
+      }
+    }
+    setMentionOpen(false)
+    setMentionQuery('')
   }
 
   function applySlash(type: BlockType) {
-    onChangeType(type, '')
+    if (type === 'image') {
+      const url = window.prompt('URL gambar', block.imageUrl || 'https://')
+      onChange({
+        type,
+        text: '',
+        imageUrl: url?.trim() || '',
+        checked: undefined,
+        calloutTone: undefined,
+        collapsed: undefined,
+      })
+    } else {
+      onTurnInto(type)
+      onChange({ text: '' })
+    }
     setSlashOpen(false)
     setSlashQuery('')
     requestAnimationFrame(() => ref.current?.focus())
   }
 
+  function applyMention(page: Page) {
+    const el = ref.current
+    if (!el) return
+    const caret = el.selectionStart
+    const before = block.text.slice(0, caret)
+    const at = before.lastIndexOf('@')
+    if (at < 0) return
+    const next = `${block.text.slice(0, at)}[[${page.title || 'Tanpa judul'}]]${block.text.slice(caret)}`
+    onChange({ text: next })
+    onMentionPage(page)
+    setMentionOpen(false)
+    requestAnimationFrame(() => {
+      const pos = at + 2 + (page.title || 'Tanpa judul').length + 2
+      el.focus()
+      el.setSelectionRange(pos, pos)
+    })
+  }
+
+  function applyWrap(before: string, after?: string) {
+    const el = ref.current
+    if (!el) return
+    const result = wrapSelection(block.text, el.selectionStart, el.selectionEnd, before, after)
+    onChange({ text: result.value })
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(result.start, result.end)
+      autoResize(el)
+    })
+  }
+
+  function applyLink() {
+    const el = ref.current
+    if (!el) return
+    const url = window.prompt('URL tautan', 'https://')
+    if (!url) return
+    const result = wrapLink(block.text, el.selectionStart, el.selectionEnd, url.trim())
+    onChange({ text: result.value })
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(result.start, result.end)
+    })
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIndex((i) => (i + 1) % Math.max(mentionHits.length, 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIndex(
+          (i) => (i - 1 + Math.max(mentionHits.length, 1)) % Math.max(mentionHits.length, 1),
+        )
+        return
+      }
+      if (e.key === 'Enter' && mentionHits[mentionIndex]) {
+        e.preventDefault()
+        applyMention(mentionHits[mentionIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMentionOpen(false)
+        return
+      }
+    }
+
     if (slashOpen) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -100,13 +231,19 @@ export function BlockRow({
       }
     }
 
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      onIndent(e.shiftKey ? -1 : 1)
+      return
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       onEnter()
       return
     }
 
-    if (e.key === 'Backspace' && block.text === '') {
+    if (e.key === 'Backspace' && block.text === '' && block.type !== 'divider') {
       e.preventDefault()
       onBackspaceEmpty()
     }
@@ -118,16 +255,71 @@ export function BlockRow({
     onDragStart(block.id)
   }
 
+  if (block.type === 'divider') {
+    return (
+      <div
+        className={[
+          'block-row divider-row',
+          isDragging ? 'is-dragging' : '',
+          isDragOver ? 'is-drag-over' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        style={{ paddingLeft: indent * 24 }}
+        onDragOver={(e) => {
+          e.preventDefault()
+          onDragOver(block.id)
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          onDrop(block.id)
+        }}
+      >
+        <button
+          type="button"
+          className="block-handle"
+          tabIndex={-1}
+          draggable
+          onDragStart={handleDragStart}
+          onDragEnd={onDragEnd}
+          aria-label="Seret divider"
+        >
+          ⋮⋮
+        </button>
+        <div className="block-body divider-body">
+          <hr className="block-divider" />
+          <button type="button" className="block-more" onClick={() => setMenuOpen((v) => !v)}>
+            ⋯
+          </button>
+          {menuOpen && (
+            <div className="block-menu">
+              <button type="button" onClick={() => { onDuplicate(); setMenuOpen(false) }}>
+                Duplikat
+              </button>
+              <button type="button" className="danger" onClick={() => { onDelete(); setMenuOpen(false) }}>
+                Hapus
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className={[
         'block-row',
         block.type === 'todo' && block.checked ? 'todo-done' : '',
+        block.type === 'callout' ? `callout callout-${block.calloutTone ?? 'info'}` : '',
+        block.type === 'quote' ? 'is-quote' : '',
+        block.type === 'toggle' ? 'is-toggle' : '',
         isDragging ? 'is-dragging' : '',
         isDragOver ? 'is-drag-over' : '',
       ]
         .filter(Boolean)
         .join(' ')}
+      style={{ paddingLeft: indent * 24 }}
       onDragOver={(e) => {
         e.preventDefault()
         onDragOver(block.id)
@@ -137,54 +329,144 @@ export function BlockRow({
         onDrop(block.id)
       }}
     >
-      <button
-        type="button"
-        className="block-handle"
-        tabIndex={-1}
-        aria-label="Seret untuk mengurutkan blok"
-        title="Seret untuk mengurutkan"
-        draggable
-        onDragStart={handleDragStart}
-        onDragEnd={onDragEnd}
-      >
-        ⋮⋮
-      </button>
+      <div className="block-controls">
+        <button
+          type="button"
+          className="block-handle"
+          tabIndex={-1}
+          aria-label="Seret untuk mengurutkan blok"
+          title="Seret"
+          draggable
+          onDragStart={handleDragStart}
+          onDragEnd={onDragEnd}
+        >
+          ⋮⋮
+        </button>
+        <button
+          type="button"
+          className="block-more"
+          tabIndex={-1}
+          aria-label="Menu blok"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          ⋯
+        </button>
+        {menuOpen && (
+          <div className="block-menu">
+            <button type="button" onClick={() => { onDuplicate(); setMenuOpen(false) }}>
+              Duplikat
+            </button>
+            <button type="button" onClick={() => { onTurnInto('paragraph'); setMenuOpen(false) }}>
+              Jadi teks
+            </button>
+            <button type="button" onClick={() => { onIndent(1); setMenuOpen(false) }}>
+              Indent
+            </button>
+            <button type="button" onClick={() => { onIndent(-1); setMenuOpen(false) }}>
+              Outdent
+            </button>
+            <button type="button" className="danger" onClick={() => { onDelete(); setMenuOpen(false) }}>
+              Hapus
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="block-body">
         {block.type === 'bullet' && <span className="bullet-mark">•</span>}
+        {block.type === 'numbered' && <span className="bullet-mark">{numberLabel}.</span>}
         {block.type === 'todo' && (
           <input
             className="todo-check"
             type="checkbox"
             checked={Boolean(block.checked)}
-            onChange={onToggleTodo}
+            onChange={() => onChange({ checked: !block.checked })}
             aria-label="Centang to-do"
           />
         )}
+        {block.type === 'toggle' && (
+          <button
+            type="button"
+            className="toggle-twist"
+            aria-label={block.collapsed ? 'Bentangkan' : 'Ciutkan'}
+            onClick={() => onChange({ collapsed: !block.collapsed })}
+          >
+            {block.collapsed ? '▸' : '▾'}
+          </button>
+        )}
+        {block.type === 'callout' && <span className="callout-mark">💡</span>}
 
-        <textarea
-          ref={ref}
-          className="block-input"
-          data-type={block.type}
-          rows={1}
-          value={block.text}
-          placeholder={
-            block.type === 'heading1'
-              ? 'Heading 1'
-              : block.type === 'heading2'
-                ? 'Heading 2'
-                : block.type === 'code'
-                  ? 'Kode…'
-                  : 'Ketik / untuk perintah'
-          }
-          onChange={(e) => {
-            const value = e.target.value
-            onChangeText(value)
-            syncSlash(value)
-            autoResize(e.target)
-          }}
-          onKeyDown={onKeyDown}
-        />
+        <div className="block-main">
+          {block.type === 'image' && block.imageUrl ? (
+            <img className="block-image" src={block.imageUrl} alt={block.text || 'gambar'} />
+          ) : null}
+
+          {!(block.type === 'toggle' && block.collapsed) && (
+            <textarea
+              ref={ref}
+              className="block-input"
+              data-type={block.type}
+              rows={1}
+              value={block.text}
+              placeholder={
+                block.type === 'heading1'
+                  ? 'Heading 1'
+                  : block.type === 'heading2'
+                    ? 'Heading 2'
+                    : block.type === 'heading3'
+                      ? 'Heading 3'
+                      : block.type === 'code'
+                        ? 'Kode…'
+                        : block.type === 'quote'
+                          ? 'Kutipan…'
+                          : block.type === 'callout'
+                            ? 'Callout…'
+                            : block.type === 'image'
+                              ? 'Caption…'
+                              : block.type === 'toggle'
+                                ? 'Judul toggle…'
+                                : 'Ketik / untuk perintah, @ untuk halaman'
+              }
+              onChange={(e) => {
+                const value = e.target.value
+                onChange({ text: value })
+                syncMenus(value, e.target.selectionStart)
+                autoResize(e.target)
+              }}
+              onKeyDown={onKeyDown}
+              onSelect={(e) => {
+                const el = e.currentTarget
+                setShowFormat(el.selectionStart !== el.selectionEnd)
+                syncMenus(el.value, el.selectionStart)
+              }}
+              onBlur={() => {
+                window.setTimeout(() => {
+                  setShowFormat(false)
+                  setMenuOpen(false)
+                }, 150)
+              }}
+            />
+          )}
+
+          {block.type === 'toggle' && block.collapsed && (
+            <button
+              type="button"
+              className="toggle-collapsed-label"
+              onClick={() => onChange({ collapsed: false })}
+            >
+              {block.text || 'Toggle'}
+            </button>
+          )}
+
+          {showFormat && (
+            <FormatToolbar
+              onBold={() => applyWrap('**')}
+              onItalic={() => applyWrap('*')}
+              onCode={() => applyWrap('`')}
+              onLink={applyLink}
+            />
+          )}
+        </div>
       </div>
 
       {slashOpen && (
@@ -195,6 +477,28 @@ export function BlockRow({
           onSelect={applySlash}
         />
       )}
+
+      {mentionOpen && mentionHits.length > 0 && (
+        <div className="mention-menu" role="listbox" aria-label="Sebut halaman">
+          {mentionHits.map((page, i) => (
+            <button
+              key={page.id}
+              type="button"
+              className={`mention-item${i === mentionIndex ? ' active' : ''}`}
+              onMouseEnter={() => setMentionIndex(i)}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                applyMention(page)
+              }}
+            >
+              <span>{page.icon}</span>
+              <span>{page.title || 'Tanpa judul'}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <span className="sr-only">{BLOCK_GLYPH[block.type]}</span>
     </div>
   )
 }
