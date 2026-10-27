@@ -68,6 +68,19 @@ Panduan visual & interaksi untuk MVP. Semua token ada di `src/styles/tokens.css`
 | `Backspace` di kosong | Hapus blok |
 | `Shift+Enter` | Baris baru di dalam blok (textarea) |
 
+## Drag & drop blok
+
+- Handle `⋮⋮` bersifat `draggable`
+- Drop di baris lain memanggil `reorderBlocks`
+- State visual: `.is-dragging`, `.is-drag-over`
+
+## Nested pages
+
+- `Page.parentId: string | null`
+- Sidebar: tree + collapse + tombol `+` sub-halaman
+- Hapus page ikut menghapus seluruh turunan
+- Breadcrumb di atas judul editor
+
 ## Spasi & radius
 
 - Space scale: 4 / 8 / 12 / 16 / 24 / 32 / 48

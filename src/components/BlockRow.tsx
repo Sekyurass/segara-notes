@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
 import { filterSlashItems } from '../lib/blocks'
 import type { Block, BlockType } from '../types'
 import { SlashMenu } from './SlashMenu'
@@ -6,11 +6,17 @@ import { SlashMenu } from './SlashMenu'
 type Props = {
   block: Block
   autoFocus?: boolean
+  isDragging?: boolean
+  isDragOver?: boolean
   onChangeText: (text: string) => void
   onToggleTodo: () => void
   onEnter: () => void
   onBackspaceEmpty: () => void
   onChangeType: (type: BlockType, text?: string) => void
+  onDragStart: (id: string) => void
+  onDragOver: (id: string) => void
+  onDrop: (id: string) => void
+  onDragEnd: () => void
 }
 
 function autoResize(el: HTMLTextAreaElement | null) {
@@ -22,11 +28,17 @@ function autoResize(el: HTMLTextAreaElement | null) {
 export function BlockRow({
   block,
   autoFocus,
+  isDragging,
+  isDragOver,
   onChangeText,
   onToggleTodo,
   onEnter,
   onBackspaceEmpty,
   onChangeType,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const [slashOpen, setSlashOpen] = useState(false)
@@ -100,9 +112,41 @@ export function BlockRow({
     }
   }
 
+  function handleDragStart(e: DragEvent) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', block.id)
+    onDragStart(block.id)
+  }
+
   return (
-    <div className={`block-row${block.type === 'todo' && block.checked ? ' todo-done' : ''}`}>
-      <button type="button" className="block-handle" tabIndex={-1} aria-label="Handle blok">
+    <div
+      className={[
+        'block-row',
+        block.type === 'todo' && block.checked ? 'todo-done' : '',
+        isDragging ? 'is-dragging' : '',
+        isDragOver ? 'is-drag-over' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      onDragOver={(e) => {
+        e.preventDefault()
+        onDragOver(block.id)
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        onDrop(block.id)
+      }}
+    >
+      <button
+        type="button"
+        className="block-handle"
+        tabIndex={-1}
+        aria-label="Seret untuk mengurutkan blok"
+        title="Seret untuk mengurutkan"
+        draggable
+        onDragStart={handleDragStart}
+        onDragEnd={onDragEnd}
+      >
         ⋮⋮
       </button>
 

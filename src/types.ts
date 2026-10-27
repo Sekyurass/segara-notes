@@ -11,12 +11,13 @@ export type Page = {
   id: string
   title: string
   icon: string
+  parentId: string | null
   updatedAt: number
   blocks: Block[]
 }
 
 export type Workspace = {
-  version: 1
+  version: 2
   activePageId: string
   pages: Page[]
 }
@@ -26,4 +27,9 @@ export type SlashItem = {
   label: string
   hint: string
   keywords: string[]
+}
+
+export type PageTreeNode = Page & {
+  children: PageTreeNode[]
+  depth: number
 }

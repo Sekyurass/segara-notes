@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { Editor } from './components/Editor'
 import { createEmptyPage, loadWorkspace, saveWorkspace } from './lib/storage'
+import { collectDescendantIds, getBreadcrumb } from './lib/pages'
 import type { Block, Workspace } from './types'
 
 type Theme = 'light' | 'dark'
@@ -21,6 +22,11 @@ export default function App() {
     [workspace],
   )
 
+  const breadcrumb = useMemo(
+    () => (activePage ? getBreadcrumb(workspace.pages, activePage.id) : []),
+    [workspace.pages, activePage],
+  )
+
   useEffect(() => {
     saveWorkspace(workspace)
   }, [workspace])
@@ -30,22 +36,31 @@ export default function App() {
     localStorage.setItem('segara-notes:theme', theme)
   }, [theme])
 
-  function patchActive(updater: (pageId: string) => Partial<{ title: string; blocks: Block[] }>) {
+  function patchActive(partial: Partial<{ title: string; blocks: Block[] }>) {
     setWorkspace((prev) => ({
       ...prev,
       pages: prev.pages.map((page) => {
         if (page.id !== prev.activePageId) return page
         return {
           ...page,
-          ...updater(page.id),
+          ...partial,
           updatedAt: Date.now(),
         }
       }),
     }))
   }
 
-  function createPage() {
+  function createRootPage() {
     const page = createEmptyPage()
+    setWorkspace((prev) => ({
+      ...prev,
+      activePageId: page.id,
+      pages: [page, ...prev.pages],
+    }))
+  }
+
+  function createChildPage(parentId: string) {
+    const page = createEmptyPage('Sub-halaman', parentId)
     setWorkspace((prev) => ({
       ...prev,
       activePageId: page.id,
@@ -55,10 +70,12 @@ export default function App() {
 
   function deletePage(id: string) {
     setWorkspace((prev) => {
-      if (prev.pages.length <= 1) return prev
-      const pages = prev.pages.filter((p) => p.id !== id)
-      const activePageId =
-        prev.activePageId === id ? pages[0].id : prev.activePageId
+      const removeIds = collectDescendantIds(prev.pages, id)
+      if (removeIds.size >= prev.pages.length) return prev
+      const pages = prev.pages.filter((p) => !removeIds.has(p.id))
+      const activePageId = removeIds.has(prev.activePageId)
+        ? pages[0].id
+        : prev.activePageId
       return { ...prev, pages, activePageId }
     })
   }
@@ -72,7 +89,8 @@ export default function App() {
         activePageId={activePage.id}
         theme={theme}
         onSelect={(id) => setWorkspace((prev) => ({ ...prev, activePageId: id }))}
-        onCreate={createPage}
+        onCreateRoot={createRootPage}
+        onCreateChild={createChildPage}
         onDelete={deletePage}
         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
       />
@@ -82,13 +100,18 @@ export default function App() {
           <span className="hint-chip">
             <kbd>/</kbd> menu blok
           </span>
+          <span className="hint-chip">
+            <kbd>⋮⋮</kbd> seret urutan
+          </span>
           <span className="hint-chip">Data lokal di browser ini</span>
         </div>
         <div className="editor-scroll">
           <Editor
             page={activePage}
-            onChangeTitle={(title) => patchActive(() => ({ title }))}
-            onChangeBlocks={(blocks) => patchActive(() => ({ blocks }))}
+            breadcrumb={breadcrumb}
+            onChangeTitle={(title) => patchActive({ title })}
+            onChangeBlocks={(blocks) => patchActive({ blocks })}
+            onSelectPage={(id) => setWorkspace((prev) => ({ ...prev, activePageId: id }))}
           />
         </div>
       </main>
