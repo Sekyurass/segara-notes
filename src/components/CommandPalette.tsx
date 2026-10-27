@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { searchWorkspace } from '../lib/pages'
-import type { Workspace } from '../types'
+import { searchWorkspace } from '@/lib/pages'
+import type { Workspace } from '@/types'
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
 
 type Props = {
   open: boolean
@@ -11,83 +19,47 @@ type Props = {
 
 export function CommandPalette({ open, workspace, onClose, onSelect }: Props) {
   const [query, setQuery] = useState('')
-  const [index, setIndex] = useState(0)
   const hits = useMemo(() => searchWorkspace(workspace, query), [workspace, query])
 
   useEffect(() => {
-    if (!open) return
-    setQuery('')
-    setIndex(0)
+    if (!open) setQuery('')
   }, [open])
 
-  useEffect(() => {
-    setIndex(0)
-  }, [query])
-
-  if (!open) return null
-
-  function choose(id: string) {
-    onSelect(id)
-    onClose()
-  }
-
   return (
-    <div className="palette-backdrop" onClick={onClose} role="presentation">
-      <div
-        className="palette"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Cari halaman"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <input
-          autoFocus
-          className="palette-input"
-          placeholder="Cari halaman atau isi blok…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.preventDefault()
-              onClose()
-            }
-            if (e.key === 'ArrowDown') {
-              e.preventDefault()
-              setIndex((i) => Math.min(i + 1, Math.max(hits.length - 1, 0)))
-            }
-            if (e.key === 'ArrowUp') {
-              e.preventDefault()
-              setIndex((i) => Math.max(i - 1, 0))
-            }
-            if (e.key === 'Enter' && hits[index]) {
-              e.preventDefault()
-              choose(hits[index].pageId)
-            }
-          }}
-        />
-        <ul className="palette-list">
-          {hits.length === 0 && <li className="palette-empty">Tidak ada hasil</li>}
+    <CommandDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+      title="Cari halaman"
+      description="Cari judul atau isi blok"
+    >
+      <CommandInput
+        placeholder="Cari halaman atau isi blok…"
+        value={query}
+        onValueChange={setQuery}
+      />
+      <CommandList>
+        <CommandEmpty>Tidak ada hasil</CommandEmpty>
+        <CommandGroup heading="Hasil">
           {hits.map((hit, i) => (
-            <li key={`${hit.pageId}-${i}`}>
-              <button
-                type="button"
-                className={`palette-item${i === index ? ' active' : ''}`}
-                onMouseEnter={() => setIndex(i)}
-                onClick={() => choose(hit.pageId)}
-              >
-                <span className="palette-icon">{hit.icon}</span>
-                <span className="palette-meta">
-                  <strong>{hit.title}</strong>
-                  <span>{hit.snippet}</span>
-                </span>
-              </button>
-            </li>
+            <CommandItem
+              key={`${hit.pageId}-${i}`}
+              value={`${hit.title} ${hit.snippet}`}
+              onSelect={() => {
+                onSelect(hit.pageId)
+                onClose()
+              }}
+            >
+              <span className="text-base">{hit.icon}</span>
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate font-medium">{hit.title}</span>
+                <span className="truncate text-xs text-muted-foreground">{hit.snippet}</span>
+              </div>
+            </CommandItem>
           ))}
-        </ul>
-        <div className="palette-foot">
-          <kbd>↑↓</kbd> navigasi · <kbd>Enter</kbd> buka · <kbd>Esc</kbd> tutup
-        </div>
-      </div>
-    </div>
+        </CommandGroup>
+      </CommandList>
+    </CommandDialog>
   )
 }

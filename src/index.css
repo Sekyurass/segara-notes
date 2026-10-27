@@ -1,0 +1,235 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+/* Segara brand — teal paper, bukan purple default */
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.97 0.01 85);
+  --foreground: oklch(0.22 0.02 55);
+  --card: oklch(0.99 0.005 90);
+  --card-foreground: oklch(0.22 0.02 55);
+  --popover: oklch(0.99 0.005 90);
+  --popover-foreground: oklch(0.22 0.02 55);
+  --primary: oklch(0.48 0.1 180);
+  --primary-foreground: oklch(0.98 0.01 180);
+  --secondary: oklch(0.94 0.015 85);
+  --secondary-foreground: oklch(0.28 0.02 55);
+  --muted: oklch(0.94 0.012 85);
+  --muted-foreground: oklch(0.5 0.02 60);
+  --accent: oklch(0.93 0.03 180);
+  --accent-foreground: oklch(0.32 0.06 180);
+  --destructive: oklch(0.55 0.2 25);
+  --border: oklch(0.88 0.02 80);
+  --input: oklch(0.88 0.02 80);
+  --ring: oklch(0.55 0.1 180);
+  --sidebar: oklch(0.985 0.006 90);
+  --sidebar-foreground: oklch(0.22 0.02 55);
+  --sidebar-primary: oklch(0.48 0.1 180);
+  --sidebar-primary-foreground: oklch(0.98 0.01 180);
+  --sidebar-accent: oklch(0.94 0.025 180);
+  --sidebar-accent-foreground: oklch(0.28 0.05 180);
+  --sidebar-border: oklch(0.9 0.015 80);
+  --sidebar-ring: oklch(0.55 0.1 180);
+  --editor-max: 46rem;
+}
+
+.dark {
+  --background: oklch(0.18 0.015 55);
+  --foreground: oklch(0.95 0.01 85);
+  --card: oklch(0.22 0.015 55);
+  --card-foreground: oklch(0.95 0.01 85);
+  --popover: oklch(0.22 0.015 55);
+  --popover-foreground: oklch(0.95 0.01 85);
+  --primary: oklch(0.75 0.1 180);
+  --primary-foreground: oklch(0.2 0.04 180);
+  --secondary: oklch(0.28 0.015 55);
+  --secondary-foreground: oklch(0.95 0.01 85);
+  --muted: oklch(0.28 0.015 55);
+  --muted-foreground: oklch(0.7 0.02 70);
+  --accent: oklch(0.3 0.04 180);
+  --accent-foreground: oklch(0.9 0.04 180);
+  --destructive: oklch(0.65 0.18 25);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.7 0.08 180);
+  --sidebar: oklch(0.2 0.015 55);
+  --sidebar-foreground: oklch(0.95 0.01 85);
+  --sidebar-primary: oklch(0.75 0.1 180);
+  --sidebar-primary-foreground: oklch(0.2 0.04 180);
+  --sidebar-accent: oklch(0.28 0.035 180);
+  --sidebar-accent-foreground: oklch(0.9 0.04 180);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.7 0.08 180);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    @apply font-sans;
+  }
+}
+
+/* Layout app Segara (bukan kartu generik di hero editor) */
+@layer components {
+  .app-shell {
+    @apply grid h-full min-h-svh grid-cols-1 md:grid-cols-[16.5rem_1fr];
+  }
+
+  .editor-scroll {
+    @apply flex-1 overflow-auto px-4 py-6 sm:px-8 sm:py-8;
+  }
+
+  .editor {
+    @apply mx-auto w-full;
+    max-width: var(--editor-max);
+  }
+
+  .page-cover {
+    @apply relative -mx-4 mb-4 h-36 overflow-hidden rounded-b-xl sm:-mx-8 sm:h-40;
+  }
+
+  .block-input {
+    @apply min-w-0 flex-1 resize-none border-0 bg-transparent p-1 outline-none;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .block-input[data-type='heading1'] {
+    @apply pt-2 text-[1.65rem] font-bold tracking-tight;
+    line-height: 1.3;
+  }
+
+  .block-input[data-type='heading2'] {
+    @apply pt-1.5 text-xl font-semibold tracking-tight;
+    line-height: 1.35;
+  }
+
+  .block-input[data-type='heading3'] {
+    @apply pt-1 text-[1.05rem] font-semibold;
+    line-height: 1.4;
+  }
+
+  .block-input[data-type='code'] {
+    @apply rounded-md bg-muted px-3 py-2.5 font-mono text-sm;
+    line-height: 1.5;
+  }
+
+  .block-input[data-type='quote'] {
+    @apply border-l-[3px] border-border pl-3 text-muted-foreground italic;
+  }
+
+  .block-input::placeholder {
+    @apply text-muted-foreground/70;
+  }
+
+  .todo-done .block-input {
+    @apply text-muted-foreground line-through;
+  }
+
+  .block-row {
+    @apply relative grid min-h-8 grid-cols-[3.25rem_1fr] items-start gap-1 transition-opacity;
+  }
+
+  .block-row.is-dragging {
+    @apply opacity-45;
+  }
+
+  .block-row.is-drag-over {
+    box-shadow: inset 0 2px 0 0 var(--primary);
+  }
+
+  .block-controls {
+    @apply relative mt-1 flex gap-0.5;
+  }
+
+  .block-handle,
+  .block-more {
+    @apply size-7 opacity-0 text-muted-foreground;
+  }
+
+  .block-row:hover .block-handle,
+  .block-row:focus-within .block-handle,
+  .block-row:hover .block-more,
+  .block-row:focus-within .block-more {
+    @apply opacity-100;
+  }
+
+  .block-body {
+    @apply flex min-w-0 items-start gap-2;
+  }
+
+  .block-main {
+    @apply relative min-w-0 flex-1;
+  }
+
+  .database-row {
+    @apply grid-cols-[1.75rem_1fr];
+  }
+
+  .callout {
+    @apply rounded-lg bg-accent/70 py-1 pr-2;
+  }
+
+  .mention-menu,
+  .block-menu {
+    @apply absolute top-full left-0 z-30 flex min-w-40 flex-col gap-0.5 rounded-lg border border-border bg-popover p-1.5 text-sm shadow-md;
+  }
+
+  .mention-menu {
+    @apply left-12 max-h-60 overflow-auto;
+  }
+}

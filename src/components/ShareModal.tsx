@@ -1,5 +1,15 @@
 import { useState } from 'react'
-import { createShareLink } from '../lib/api'
+import { createShareLink } from '@/lib/api'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 
 type Props = {
   pageId: string
@@ -13,8 +23,6 @@ export function ShareModal({ pageId, pageTitle, open, onClose }: Props) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  if (!open) return null
-
   async function create() {
     setBusy(true)
     setError('')
@@ -24,39 +32,50 @@ export function ShareModal({ pageId, pageTitle, open, onClose }: Props) {
       setError('Gagal membuat link. Pastikan API (`npm run dev:api`) berjalan.')
       return
     }
-    const shareUrl = `${window.location.origin}${window.location.pathname}?share=${token}`
-    setUrl(shareUrl)
+    setUrl(`${window.location.origin}${window.location.pathname}?share=${token}`)
   }
 
   return (
-    <div className="palette-backdrop" onClick={onClose} role="presentation">
-      <div className="share-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal>
-        <h2>Bagikan halaman</h2>
-        <p>
-          Link read-only untuk <strong>{pageTitle || 'Tanpa judul'}</strong>. Penerima bisa melihat
-          snapshot halaman tanpa mengedit workspace Anda.
-        </p>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          setUrl('')
+          setError('')
+          onClose()
+        }
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Bagikan halaman</DialogTitle>
+          <DialogDescription>
+            Link read-only untuk <strong>{pageTitle || 'Tanpa judul'}</strong>. Penerima bisa melihat
+            halaman tanpa mengedit workspace Anda.
+          </DialogDescription>
+        </DialogHeader>
+
         {!url ? (
-          <button type="button" className="btn-primary" disabled={busy} onClick={() => void create()}>
+          <Button disabled={busy} onClick={() => void create()}>
             {busy ? 'Membuat…' : 'Buat link share'}
-          </button>
+          </Button>
         ) : (
-          <div className="share-result">
-            <input readOnly value={url} onFocus={(e) => e.target.select()} />
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => void navigator.clipboard.writeText(url)}
-            >
+          <div className="flex gap-2">
+            <Input readOnly value={url} onFocus={(e) => e.target.select()} />
+            <Button variant="secondary" onClick={() => void navigator.clipboard.writeText(url)}>
               Salin
-            </button>
+            </Button>
           </div>
         )}
-        {error && <div className="lock-error">{error}</div>}
-        <button type="button" className="btn-ghost" onClick={onClose}>
-          Tutup
-        </button>
-      </div>
-    </div>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Tutup
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

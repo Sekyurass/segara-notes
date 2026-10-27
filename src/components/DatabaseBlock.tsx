@@ -1,5 +1,17 @@
-import type { DatabaseData, DbColumn, DbColumnType, DbRow } from '../types'
-import { emptyColumn, emptyRow } from '../lib/database'
+import type { DatabaseData, DbColumn, DbColumnType, DbRow } from '@/types'
+import { emptyColumn, emptyRow } from '@/lib/database'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 type Props = {
   title: string
@@ -70,83 +82,90 @@ export function DatabaseBlock({ title, data, onChangeTitle, onChange, onDeleteBl
       : []
 
   return (
-    <div className="db-block">
-      <div className="db-toolbar">
-        <input
-          className="db-title"
+    <Card className="w-full overflow-hidden py-0 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2.5">
+        <Input
           value={title}
           onChange={(e) => onChangeTitle(e.target.value)}
+          className="h-8 max-w-[12rem] border-0 bg-transparent px-1 font-semibold shadow-none focus-visible:ring-0"
           aria-label="Judul database"
         />
-        <div className="db-toolbar-actions">
-          <button
-            type="button"
-            className={data.view === 'table' ? 'active' : ''}
-            onClick={() => patch({ view: 'table' })}
+        <div className="flex flex-wrap items-center gap-2">
+          <Tabs
+            value={data.view}
+            onValueChange={(view) => {
+              if (view === 'table' || view === 'board') {
+                patch({
+                  view,
+                  boardColumnId:
+                    view === 'board'
+                      ? boardCol?.id ?? data.columns.find((c) => c.type === 'select')?.id
+                      : data.boardColumnId,
+                })
+              }
+            }}
           >
-            Tabel
-          </button>
-          <button
-            type="button"
-            className={data.view === 'board' ? 'active' : ''}
-            onClick={() =>
-              patch({
-                view: 'board',
-                boardColumnId: boardCol?.id ?? data.columns.find((c) => c.type === 'select')?.id,
-              })
-            }
-          >
-            Board
-          </button>
-          <button type="button" onClick={addRow}>
+            <TabsList>
+              <TabsTrigger value="table">Tabel</TabsTrigger>
+              <TabsTrigger value="board">Board</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button type="button" size="sm" variant="secondary" onClick={addRow}>
             + Baris
-          </button>
-          <button type="button" onClick={addColumn}>
+          </Button>
+          <Button type="button" size="sm" variant="secondary" onClick={addColumn}>
             + Kolom
-          </button>
-          <button type="button" className="danger" onClick={onDeleteBlock}>
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onDeleteBlock}>
             Hapus
-          </button>
+          </Button>
         </div>
       </div>
 
       {data.view === 'table' ? (
-        <div className="db-table-wrap">
-          <table className="db-table">
+        <div className="overflow-auto">
+          <table className="w-full border-collapse text-sm">
             <thead>
-              <tr>
+              <tr className="bg-muted/60">
                 {data.columns.map((col) => (
-                  <th key={col.id}>
-                    <input
+                  <th key={col.id} className="min-w-[8rem] border-b border-border p-2 text-left align-top">
+                    <Input
                       value={col.name}
                       onChange={(e) => updateColumn(col.id, { name: e.target.value })}
+                      className="mb-1 h-8"
                       aria-label="Nama kolom"
                     />
-                    <select
+                    <Select
                       value={col.type}
-                      onChange={(e) => setColumnType(col, e.target.value as DbColumnType)}
-                      aria-label="Tipe kolom"
+                      onValueChange={(value) => setColumnType(col, value as DbColumnType)}
                     >
-                      <option value="text">Teks</option>
-                      <option value="number">Angka</option>
-                      <option value="select">Select</option>
-                      <option value="checkbox">Checkbox</option>
-                    </select>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="text">Teks</SelectItem>
+                        <SelectItem value="number">Angka</SelectItem>
+                        <SelectItem value="select">Select</SelectItem>
+                        <SelectItem value="checkbox">Checkbox</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </th>
                 ))}
-                <th />
+                <th className="w-10 border-b border-border" />
               </tr>
             </thead>
             <tbody>
               {data.rows.map((row) => (
                 <tr key={row.id}>
                   {data.columns.map((col) => (
-                    <td key={col.id}>{renderCell(row, col, updateCell)}</td>
+                    <td key={col.id} className="border-b border-border p-2 align-top">
+                      {renderCell(row, col, updateCell)}
+                    </td>
                   ))}
-                  <td>
-                    <button type="button" className="db-row-del" onClick={() => removeRow(row.id)}>
+                  <td className="border-b border-border p-1">
+                    <Button type="button" size="icon-xs" variant="ghost" onClick={() => removeRow(row.id)}>
                       ×
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -154,39 +173,53 @@ export function DatabaseBlock({ title, data, onChangeTitle, onChange, onDeleteBl
           </table>
         </div>
       ) : (
-        <div className="db-board">
-          {!boardCol && <p className="db-hint">Tambah kolom bertipe Select untuk board.</p>}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2.5 p-3">
+          {!boardCol && (
+            <p className="col-span-full text-sm text-muted-foreground">
+              Tambah kolom bertipe Select untuk board.
+            </p>
+          )}
           {groups.map((group) => (
-            <div key={group.name} className="db-board-col">
-              <div className="db-board-head">
-                {group.name} <span>{group.rows.length}</span>
+            <div key={group.name} className="flex min-h-28 flex-col gap-2 rounded-lg bg-muted/50 p-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground">
+                <span>{group.name}</span>
+                <span>{group.rows.length}</span>
               </div>
               {group.rows.map((row) => (
-                <div key={row.id} className="db-card">
+                <Card key={row.id} className="gap-2 p-2 shadow-none">
                   {data.columns
                     .filter((c) => c.id !== boardCol?.id)
                     .slice(0, 3)
                     .map((col) => (
-                      <div key={col.id} className="db-card-field">
-                        <span>{col.name}</span>
+                      <div key={col.id} className="space-y-1">
+                        <div className="text-[0.7rem] text-muted-foreground">{col.name}</div>
                         {renderCell(row, col, updateCell)}
                       </div>
                     ))}
-                  <select
-                    value={String(row.cells[boardCol!.id] ?? '')}
-                    onChange={(e) => updateCell(row.id, boardCol!.id, e.target.value)}
-                  >
-                    {boardCol!.options!.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                  {boardCol && (
+                    <Select
+                      value={String(row.cells[boardCol.id] ?? '')}
+                      onValueChange={(value) => updateCell(row.id, boardCol.id, value)}
+                    >
+                      <SelectTrigger className="h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {boardCol.options!.map((opt) => (
+                          <SelectItem key={opt} value={opt}>
+                            {opt}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </Card>
               ))}
-              <button
+              <Button
                 type="button"
-                className="db-add-card"
+                variant="ghost"
+                size="sm"
+                className="justify-start"
                 onClick={() => {
                   const row = emptyRow(data.columns)
                   if (boardCol) row.cells[boardCol.id] = group.name
@@ -194,22 +227,22 @@ export function DatabaseBlock({ title, data, onChangeTitle, onChange, onDeleteBl
                 }}
               >
                 + Kartu
-              </button>
+              </Button>
             </div>
           ))}
           {ungrouped.length > 0 && (
-            <div className="db-board-col">
-              <div className="db-board-head">Lainnya</div>
+            <div className="rounded-lg bg-muted/50 p-2">
+              <div className="mb-2 text-xs font-semibold text-muted-foreground">Lainnya</div>
               {ungrouped.map((row) => (
-                <div key={row.id} className="db-card">
+                <Card key={row.id} className="mb-2 p-2 text-sm shadow-none">
                   {String(Object.values(row.cells)[0] ?? 'Item')}
-                </div>
+                </Card>
               ))}
             </div>
           )}
         </div>
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -221,39 +254,45 @@ function renderCell(
   const value = row.cells[col.id]
   if (col.type === 'checkbox') {
     return (
-      <input
-        type="checkbox"
+      <Checkbox
         checked={Boolean(value)}
-        onChange={(e) => updateCell(row.id, col.id, e.target.checked)}
+        onCheckedChange={(checked) => updateCell(row.id, col.id, Boolean(checked))}
       />
     )
   }
   if (col.type === 'select') {
     return (
-      <select
+      <Select
         value={String(value ?? '')}
-        onChange={(e) => updateCell(row.id, col.id, e.target.value)}
+        onValueChange={(next) => updateCell(row.id, col.id, next)}
       >
-        {(col.options ?? []).map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className="h-8">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {(col.options ?? []).map((opt) => (
+            <SelectItem key={opt} value={opt}>
+              {opt}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     )
   }
   if (col.type === 'number') {
     return (
-      <input
+      <Input
         type="number"
+        className="h-8"
         value={Number(value ?? 0)}
         onChange={(e) => updateCell(row.id, col.id, Number(e.target.value))}
       />
     )
   }
   return (
-    <input
+    <Input
       type="text"
+      className="h-8"
       value={String(value ?? '')}
       onChange={(e) => updateCell(row.id, col.id, e.target.value)}
     />

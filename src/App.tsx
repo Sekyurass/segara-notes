@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Lock, Menu, Share2 } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { Editor } from './components/Editor'
 import { CommandPalette } from './components/CommandPalette'
 import { LockScreen } from './components/LockScreen'
 import { ShareModal } from './components/ShareModal'
 import { ShareView } from './components/ShareView'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Kbd } from '@/components/ui/kbd'
 import {
   fetchWorkspaceMeta,
   fetchWorkspaceRemote,
@@ -179,7 +183,7 @@ export default function App() {
   }, [lockMode, shareToken])
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
+    document.documentElement.classList.toggle('dark', theme === 'dark')
     localStorage.setItem('segara-notes:theme', theme)
   }, [theme])
 
@@ -305,6 +309,13 @@ export default function App() {
 
   if (!activePage) return null
 
+  const syncVariant =
+    syncStatus === 'online'
+      ? 'default'
+      : syncStatus === 'error'
+        ? 'destructive'
+        : 'secondary'
+
   return (
     <div className="app-shell">
       <Sidebar
@@ -337,34 +348,37 @@ export default function App() {
         onOpenSearch={() => setPaletteOpen(true)}
       />
 
-      <main className="workspace">
-        <div className="topbar">
-          <div className="topbar-hints">
-            <button
+      <main className="flex min-w-0 flex-col bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent)]">
+        <div className="flex items-center justify-between gap-3 border-b border-transparent px-3 py-2.5 sm:px-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
               type="button"
-              className="icon-btn mobile-nav-btn"
+              variant="ghost"
+              size="icon-sm"
+              className="md:hidden"
               aria-label="Menu"
               onClick={() => setMobileNav(true)}
             >
-              ☰
-            </button>
-            <span className="hint-chip">
-              <kbd>/</kbd> blok
-            </span>
-            <span className="hint-chip hide-sm">
-              <kbd>Ctrl+K</kbd> cari
-            </span>
-            <span className={`hint-chip sync-chip sync-${syncStatus}`} title="Status sync">
+              <Menu />
+            </Button>
+            <Badge variant="secondary" className="gap-1.5 font-normal">
+              <Kbd>/</Kbd> blok
+            </Badge>
+            <Badge variant="secondary" className="hidden gap-1.5 font-normal sm:inline-flex">
+              <Kbd>Ctrl+K</Kbd> cari
+            </Badge>
+            <Badge variant={syncVariant} className="font-normal">
               {syncLabel(syncStatus)}
-            </span>
+            </Badge>
           </div>
-          <div className="topbar-actions">
-            <button type="button" className="btn-ghost topbar-export" onClick={() => setShareOpen(true)}>
-              Share
-            </button>
-            <button
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => setShareOpen(true)}>
+              <Share2 /> Share
+            </Button>
+            <Button
               type="button"
-              className="btn-ghost topbar-export"
+              variant="secondary"
+              size="sm"
               onClick={() => {
                 if (hasWorkspaceLock()) {
                   lockSession()
@@ -374,15 +388,17 @@ export default function App() {
                 }
               }}
             >
+              <Lock />
               {hasWorkspaceLock() ? 'Kunci' : 'PIN'}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="btn-ghost topbar-export"
+              variant="outline"
+              size="sm"
               onClick={() => downloadMarkdown(activePage)}
             >
               Export .md
-            </button>
+            </Button>
           </div>
         </div>
         <div className="editor-scroll">

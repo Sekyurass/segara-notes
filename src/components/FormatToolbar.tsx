@@ -1,3 +1,6 @@
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+
 type Props = {
   onBold: () => void
   onItalic: () => void
@@ -7,19 +10,59 @@ type Props = {
 
 export function FormatToolbar({ onBold, onItalic, onCode, onLink }: Props) {
   return (
-    <div className="format-toolbar" role="toolbar" aria-label="Format teks">
-      <button type="button" onMouseDown={(e) => { e.preventDefault(); onBold() }} title="Bold">
+    <Card
+      className="absolute top-[-2.6rem] left-0 z-25 flex flex-row gap-0.5 p-1 shadow-md"
+      role="toolbar"
+      aria-label="Format teks"
+    >
+      <Button
+        type="button"
+        size="icon-sm"
+        variant="ghost"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          onBold()
+        }}
+        title="Bold"
+      >
         <strong>B</strong>
-      </button>
-      <button type="button" onMouseDown={(e) => { e.preventDefault(); onItalic() }} title="Italic">
+      </Button>
+      <Button
+        type="button"
+        size="icon-sm"
+        variant="ghost"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          onItalic()
+        }}
+        title="Italic"
+      >
         <em>I</em>
-      </button>
-      <button type="button" onMouseDown={(e) => { e.preventDefault(); onCode() }} title="Code">
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          onCode()
+        }}
+        title="Code"
+      >
         {'</>'}
-      </button>
-      <button type="button" onMouseDown={(e) => { e.preventDefault(); onLink() }} title="Link">
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          onLink()
+        }}
+        title="Link"
+      >
         Link
-      </button>
-    </div>
+      </Button>
+    </Card>
   )
 }

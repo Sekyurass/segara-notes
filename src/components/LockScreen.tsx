@@ -4,7 +4,11 @@ import {
   hasWorkspaceLock,
   setWorkspacePin,
   verifyWorkspacePin,
-} from '../lib/lock'
+} from '@/lib/lock'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 type Props = {
   mode: 'unlock' | 'setup'
@@ -48,46 +52,60 @@ export function LockScreen({ mode, onUnlocked }: Props) {
   }
 
   return (
-    <div className="lock-screen">
-      <form className="lock-card" onSubmit={submit}>
-        <div className="lock-brand">🌊 Segara Notes</div>
-        <h1>{mode === 'setup' ? 'Pasang kunci workspace' : 'Workspace terkunci'}</h1>
-        <p>
-          {mode === 'setup'
-            ? 'PIN disimpan lokal di browser ini (hash), tidak ikut sync ke server.'
-            : 'Masukkan PIN untuk membuka catatan.'}
-        </p>
-        <label>
-          PIN
-          <input
-            type="password"
-            autoFocus
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            autoComplete="current-password"
-          />
-        </label>
-        {mode === 'setup' && (
-          <label>
-            Konfirmasi
-            <input
-              type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              autoComplete="new-password"
-            />
-          </label>
-        )}
-        {error && <div className="lock-error">{error}</div>}
-        <button type="submit" className="btn-primary" disabled={busy}>
-          {mode === 'setup' ? 'Simpan PIN' : 'Buka'}
-        </button>
-        {mode === 'setup' && hasWorkspaceLock() && (
-          <button type="button" className="btn-ghost" onClick={() => void clearWorkspacePin().then(onUnlocked)}>
-            Hapus kunci
-          </button>
-        )}
-      </form>
+    <div className="grid min-h-svh place-items-center bg-[radial-gradient(ellipse_70%_50%_at_50%_0%,color-mix(in_oklch,var(--primary)_18%,transparent),transparent)] p-6">
+      <Card className="w-full max-w-sm shadow-lg">
+        <CardHeader>
+          <div className="text-sm font-medium">🌊 Segara Notes</div>
+          <CardTitle className="text-xl">
+            {mode === 'setup' ? 'Pasang kunci workspace' : 'Workspace terkunci'}
+          </CardTitle>
+          <CardDescription>
+            {mode === 'setup'
+              ? 'PIN disimpan lokal di browser ini (hash), tidak ikut sync ke server.'
+              : 'Masukkan PIN untuk membuka catatan.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form className="flex flex-col gap-4" onSubmit={submit}>
+            <div className="space-y-2">
+              <Label htmlFor="pin">PIN</Label>
+              <Input
+                id="pin"
+                type="password"
+                autoFocus
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
+            {mode === 'setup' && (
+              <div className="space-y-2">
+                <Label htmlFor="confirm">Konfirmasi</Label>
+                <Input
+                  id="confirm"
+                  type="password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+            )}
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <Button type="submit" disabled={busy}>
+              {mode === 'setup' ? 'Simpan PIN' : 'Buka'}
+            </Button>
+            {mode === 'setup' && hasWorkspaceLock() && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void clearWorkspacePin().then(onUnlocked)}
+              >
+                Hapus kunci
+              </Button>
+            )}
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

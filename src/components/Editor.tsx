@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { clampIndent, createBlock } from '../lib/blocks'
-import { createDefaultDatabase } from '../lib/database'
-import { numberedLabel, reorderBlocks } from '../lib/pages'
-import { COVER_PRESETS, PAGE_ICONS, coverCss } from '../lib/storage'
-import type { Block, BlockType, Page } from '../types'
+import { Copy, ImageIcon, Star } from 'lucide-react'
+import { clampIndent, createBlock } from '@/lib/blocks'
+import { createDefaultDatabase } from '@/lib/database'
+import { numberedLabel, reorderBlocks } from '@/lib/pages'
+import { COVER_PRESETS, PAGE_ICONS, coverCss } from '@/lib/storage'
+import type { Block, BlockType, Page } from '@/types'
+import { Button } from '@/components/ui/button'
+import { Kbd } from '@/components/ui/kbd'
+import { Textarea } from '@/components/ui/textarea'
 import { BlockRow } from './BlockRow'
 
 type Props = {
@@ -111,29 +115,27 @@ export function Editor({
   const cover = coverCss(page.cover)
 
   return (
-    <div className="editor">
+    <div className="editor animate-in fade-in-0 duration-200">
       {cover && (
-        <div className="page-cover" style={{ background: cover }}>
-          <button type="button" className="cover-change" onClick={() => setCoverOpen((v) => !v)}>
-            Ganti cover
-          </button>
-          <button
-            type="button"
-            className="cover-remove"
-            onClick={() => onChangePage({ cover: null })}
-          >
-            Hapus
-          </button>
+        <div className="page-cover group" style={{ background: cover }}>
+          <div className="absolute right-3 bottom-3 flex gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+            <Button size="sm" variant="secondary" onClick={() => setCoverOpen((v) => !v)}>
+              Ganti cover
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => onChangePage({ cover: null })}>
+              Hapus
+            </Button>
+          </div>
         </div>
       )}
 
       {coverOpen && (
-        <div className="cover-picker">
+        <div className="mb-3 flex flex-wrap gap-2">
           {COVER_PRESETS.map((preset) => (
             <button
               key={preset.id}
               type="button"
-              className="cover-swatch"
+              className="h-9 w-14 rounded-md border border-border outline-offset-2 hover:outline hover:outline-2 hover:outline-primary"
               style={{ background: preset.css }}
               title={preset.label}
               onClick={() => {
@@ -146,20 +148,26 @@ export function Editor({
       )}
 
       {breadcrumb.length > 1 && (
-        <nav className="breadcrumb" aria-label="Breadcrumb halaman">
+        <nav className="mb-3 flex flex-wrap items-center gap-1 text-sm text-muted-foreground" aria-label="Breadcrumb">
           {breadcrumb.map((crumb, index) => {
             const isLast = index === breadcrumb.length - 1
             return (
-              <span key={crumb.id} className="breadcrumb-item">
-                {index > 0 && <span className="breadcrumb-sep">/</span>}
+              <span key={crumb.id} className="inline-flex items-center gap-1">
+                {index > 0 && <span className="text-muted-foreground/60">/</span>}
                 {isLast ? (
-                  <span className="breadcrumb-current">
+                  <span className="font-medium text-foreground">
                     {crumb.icon} {crumb.title || 'Tanpa judul'}
                   </span>
                 ) : (
-                  <button type="button" onClick={() => onSelectPage(crumb.id)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-1.5"
+                    onClick={() => onSelectPage(crumb.id)}
+                  >
                     {crumb.icon} {crumb.title || 'Tanpa judul'}
-                  </button>
+                  </Button>
                 )}
               </span>
             )
@@ -167,50 +175,60 @@ export function Editor({
         </nav>
       )}
 
-      <div className="page-hero-actions">
-        <button type="button" className="page-icon-btn" onClick={() => setIconOpen((v) => !v)}>
-          {page.icon}
-        </button>
-        {!page.cover && (
-          <button type="button" className="ghost-link" onClick={() => setCoverOpen(true)}>
-            + Cover
-          </button>
-        )}
-        <button
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <Button
           type="button"
-          className="ghost-link"
+          variant="secondary"
+          className="size-14 text-2xl"
+          onClick={() => setIconOpen((v) => !v)}
+        >
+          {page.icon}
+        </Button>
+        {!page.cover && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => setCoverOpen(true)}>
+            <ImageIcon /> Cover
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
           onClick={() => onChangePage({ favorite: !page.favorite })}
         >
-          {page.favorite ? '★ Favorit' : '☆ Favorit'}
-        </button>
-        <button type="button" className="ghost-link" onClick={() => onCreateChild(page.id)}>
+          <Star className={page.favorite ? 'fill-current' : ''} />
+          Favorit
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => onCreateChild(page.id)}>
           + Sub-halaman
-        </button>
-        <button type="button" className="ghost-link" onClick={onDuplicatePage}>
-          Duplikat halaman
-        </button>
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onDuplicatePage}>
+          <Copy /> Duplikat
+        </Button>
       </div>
 
       {iconOpen && (
-        <div className="icon-picker">
+        <div className="mb-3 flex flex-wrap gap-1">
           {PAGE_ICONS.map((icon) => (
-            <button
+            <Button
               key={icon}
               type="button"
+              variant="ghost"
+              size="icon"
+              className="text-lg"
               onClick={() => {
                 onChangePage({ icon })
                 setIconOpen(false)
               }}
             >
               {icon}
-            </button>
+            </Button>
           ))}
         </div>
       )}
 
-      <textarea
+      <Textarea
         ref={titleRef}
-        className="page-title"
+        className="mb-4 min-h-0 resize-none border-0 bg-transparent p-0 text-[clamp(1.8rem,3vw,2.4rem)] font-bold tracking-tight shadow-none focus-visible:ring-0"
         rows={1}
         value={page.title}
         placeholder="Tanpa judul"
@@ -219,12 +237,12 @@ export function Editor({
       />
 
       {isEmpty && (
-        <div className="empty-hint">
-          Ketik <kbd>/</kbd> untuk blok · <kbd>@</kbd> sebut halaman · <kbd>Ctrl+K</kbd> cari
-        </div>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Ketik <Kbd>/</Kbd> untuk blok · <Kbd>@</Kbd> sebut halaman · <Kbd>Ctrl+K</Kbd> cari
+        </p>
       )}
 
-      <div className="blocks">
+      <div className="flex flex-col gap-0.5">
         {page.blocks.map((block) => (
           <BlockRow
             key={block.id}

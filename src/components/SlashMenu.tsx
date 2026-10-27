@@ -1,5 +1,7 @@
-import { BLOCK_GLYPH, SLASH_GROUP_LABEL } from '../lib/blocks'
-import type { BlockType, SlashGroup, SlashItem } from '../types'
+import { BLOCK_GLYPH, SLASH_GROUP_LABEL } from '@/lib/blocks'
+import type { BlockType, SlashGroup, SlashItem } from '@/types'
+import { cn } from '@/lib/utils'
+import { Card } from '@/components/ui/card'
 
 type Props = {
   items: SlashItem[]
@@ -11,9 +13,9 @@ type Props = {
 export function SlashMenu({ items, activeIndex, onSelect, onHover }: Props) {
   if (items.length === 0) {
     return (
-      <div className="slash-menu" role="listbox" aria-label="Menu blok">
-        <div className="slash-empty">Tidak ada jenis blok</div>
-      </div>
+      <Card className="absolute top-[calc(100%+4px)] left-8 z-20 w-[min(280px,calc(100vw-48px))] p-3 text-sm text-muted-foreground shadow-lg">
+        Tidak ada jenis blok
+      </Card>
     )
   }
 
@@ -27,32 +29,43 @@ export function SlashMenu({ items, activeIndex, onSelect, onHover }: Props) {
     .filter((g) => g.entries.length > 0)
 
   return (
-    <div className="slash-menu" role="listbox" aria-label="Menu blok">
+    <Card
+      className="absolute top-[calc(100%+4px)] left-8 z-20 max-h-80 w-[min(280px,calc(100vw-48px))] overflow-auto p-1.5 shadow-lg"
+      role="listbox"
+      aria-label="Menu blok"
+    >
       {groups.map(({ group, entries }) => (
-        <div key={group} className="slash-group">
-          <div className="slash-label">{SLASH_GROUP_LABEL[group]}</div>
+        <div key={group} className="mb-1 border-b border-border pb-1 last:mb-0 last:border-0 last:pb-0">
+          <div className="px-2 py-1.5 text-[0.7rem] font-semibold tracking-wider text-muted-foreground uppercase">
+            {SLASH_GROUP_LABEL[group]}
+          </div>
           {entries.map(({ item, index }) => (
             <button
               key={item.type}
               type="button"
               role="option"
               aria-selected={index === activeIndex}
-              className={`slash-item${index === activeIndex ? ' active' : ''}`}
+              className={cn(
+                'grid w-full grid-cols-[2.25rem_1fr] items-center gap-2 rounded-md p-2 text-left hover:bg-accent',
+                index === activeIndex && 'bg-accent',
+              )}
               onMouseEnter={() => onHover(index)}
               onMouseDown={(e) => {
                 e.preventDefault()
                 onSelect(item.type)
               }}
             >
-              <span className="slash-glyph">{BLOCK_GLYPH[item.type]}</span>
-              <span className="slash-meta">
-                <strong>{item.label}</strong>
-                <span>{item.hint}</span>
+              <span className="grid size-9 place-items-center rounded-md border border-border bg-background text-xs font-semibold text-muted-foreground">
+                {BLOCK_GLYPH[item.type]}
+              </span>
+              <span className="min-w-0">
+                <strong className="block text-sm font-semibold">{item.label}</strong>
+                <span className="text-xs text-muted-foreground">{item.hint}</span>
               </span>
             </button>
           ))}
         </div>
       ))}
-    </div>
+    </Card>
   )
 }
