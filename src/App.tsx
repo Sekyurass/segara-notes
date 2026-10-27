@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { Editor } from './components/Editor'
+import {
+  fetchWorkspaceRemote,
+  pingApi,
+  saveWorkspaceRemote,
+  type SyncStatus,
+} from './lib/api'
+import { downloadMarkdown } from './lib/markdown'
 import { createEmptyPage, loadWorkspace, saveWorkspace } from './lib/storage'
 import { collectDescendantIds, getBreadcrumb } from './lib/pages'
 import type { Block, Workspace } from './types'
@@ -13,9 +20,24 @@ function readTheme(): Theme {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
+function syncLabel(status: SyncStatus): string {
+  switch (status) {
+    case 'online':
+      return 'Tersinkron'
+    case 'saving':
+      return 'Menyimpan…'
+    case 'error':
+      return 'Gagal sync'
+    default:
+      return 'Lokal saja'
+  }
+}
+
 export default function App() {
   const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace())
   const [theme, setTheme] = useState<Theme>(() => readTheme())
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('offline')
+  const [hydrated, setHydrated] = useState(false)
 
   const activePage = useMemo(
     () => workspace.pages.find((p) => p.id === workspace.activePageId) ?? workspace.pages[0],
@@ -28,8 +50,64 @@ export default function App() {
   )
 
   useEffect(() => {
+    let cancelled = false
+
+    async function boot() {
+      const online = await pingApi()
+      if (cancelled) return
+
+      if (!online) {
+        setSyncStatus('offline')
+        setHydrated(true)
+        return
+      }
+
+      const remote = await fetchWorkspaceRemote()
+      if (cancelled) return
+
+      if (remote && Array.isArray(remote.pages) && remote.pages.length > 0) {
+        setWorkspace(remote)
+        saveWorkspace(remote)
+        setSyncStatus('online')
+      } else {
+        const local = loadWorkspace()
+        const ok = await saveWorkspaceRemote(local)
+        if (!cancelled) setSyncStatus(ok ? 'online' : 'error')
+      }
+
+      if (!cancelled) setHydrated(true)
+    }
+
+    void boot()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hydrated) return
     saveWorkspace(workspace)
-  }, [workspace])
+
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      const online = await pingApi()
+      if (cancelled) return
+      if (!online) {
+        setSyncStatus('offline')
+        return
+      }
+
+      setSyncStatus('saving')
+      const ok = await saveWorkspaceRemote(workspace)
+      if (cancelled) return
+      setSyncStatus(ok ? 'online' : 'error')
+    }, 700)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [workspace, hydrated])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -97,13 +175,24 @@ export default function App() {
 
       <main className="workspace">
         <div className="topbar">
-          <span className="hint-chip">
-            <kbd>/</kbd> menu blok
-          </span>
-          <span className="hint-chip">
-            <kbd>⋮⋮</kbd> seret urutan
-          </span>
-          <span className="hint-chip">Data lokal di browser ini</span>
+          <div className="topbar-hints">
+            <span className="hint-chip">
+              <kbd>/</kbd> menu blok
+            </span>
+            <span className="hint-chip">
+              <kbd>⋮⋮</kbd> seret urutan
+            </span>
+            <span className={`hint-chip sync-chip sync-${syncStatus}`} title="Status sinkronisasi API">
+              {syncLabel(syncStatus)}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn-ghost topbar-export"
+            onClick={() => downloadMarkdown(activePage)}
+          >
+            Export .md
+          </button>
         </div>
         <div className="editor-scroll">
           <Editor

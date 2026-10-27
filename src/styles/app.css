@@ -213,6 +213,35 @@
   border-bottom: 1px solid transparent;
 }
 
+.topbar-hints {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.topbar-export {
+  flex: 0 0 auto;
+  width: auto;
+  white-space: nowrap;
+}
+
+.sync-chip.sync-online {
+  color: #0f7a4a;
+}
+
+.sync-chip.sync-saving {
+  color: var(--accent);
+}
+
+.sync-chip.sync-error {
+  color: #b42318;
+}
+
+.sync-chip.sync-offline {
+  color: var(--text-muted);
+}
+
 .editor-scroll {
   flex: 1;
   overflow: auto;

@@ -1,0 +1,15 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// Satu baris menyimpan seluruh workspace JSON (pages + blocks).
+model WorkspaceSnapshot {
+  id        String   @id @default("default")
+  data      String
+  updatedAt DateTime @updatedAt
+}
