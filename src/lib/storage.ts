@@ -1,5 +1,6 @@
 import type { Block, Page, Workspace } from '../types'
 import { createBlock } from './blocks'
+import { createDefaultDatabase } from './database'
 import { createId } from './id'
 
 const STORAGE_KEY = 'segara-notes:v1'
@@ -65,7 +66,7 @@ export function createEmptyPage(
 export function createDefaultWorkspace(): Workspace {
   const page = starterPage()
   return {
-    version: 3,
+    version: 4,
     activePageId: page.id,
     pages: [page],
     recentPageIds: [page.id],
@@ -73,16 +74,18 @@ export function createDefaultWorkspace(): Workspace {
 }
 
 function normalizeBlock(raw: Partial<Block>): Block {
-  const type = raw.type ?? 'paragraph'
+  const type = (raw.type as Block['type']) ?? 'paragraph'
   return {
     id: raw.id ?? createId('block'),
     type,
-    text: raw.text ?? '',
+    text: raw.text ?? (type === 'database' ? 'Database' : ''),
     indent: raw.indent ?? 0,
     checked: type === 'todo' ? Boolean(raw.checked) : undefined,
     collapsed: type === 'toggle' ? Boolean(raw.collapsed) : undefined,
     calloutTone: type === 'callout' ? raw.calloutTone ?? 'info' : undefined,
     imageUrl: type === 'image' ? raw.imageUrl ?? '' : undefined,
+    database:
+      type === 'database' ? raw.database ?? createDefaultDatabase(raw.text || 'Database') : undefined,
   }
 }
 
@@ -117,7 +120,7 @@ export function normalizeWorkspace(raw: unknown): Workspace {
     .slice(0, 8)
 
   return {
-    version: 3,
+    version: 4,
     activePageId,
     pages,
     recentPageIds: recentPageIds.length ? recentPageIds : [activePageId],

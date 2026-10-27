@@ -12,8 +12,31 @@ export type BlockType =
   | 'callout'
   | 'toggle'
   | 'image'
+  | 'database'
 
 export type CalloutTone = 'info' | 'warn' | 'success'
+
+export type DbColumnType = 'text' | 'number' | 'select' | 'checkbox'
+export type DbView = 'table' | 'board'
+
+export type DbColumn = {
+  id: string
+  name: string
+  type: DbColumnType
+  options?: string[]
+}
+
+export type DbRow = {
+  id: string
+  cells: Record<string, string | boolean | number>
+}
+
+export type DatabaseData = {
+  view: DbView
+  columns: DbColumn[]
+  rows: DbRow[]
+  boardColumnId?: string
+}
 
 export type Block = {
   id: string
@@ -24,6 +47,7 @@ export type Block = {
   collapsed?: boolean
   calloutTone?: CalloutTone
   imageUrl?: string
+  database?: DatabaseData
 }
 
 export type Page = {
@@ -40,7 +64,7 @@ export type Page = {
 }
 
 export type Workspace = {
-  version: 3
+  version: 4
   activePageId: string
   pages: Page[]
   recentPageIds: string[]

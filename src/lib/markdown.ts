@@ -31,6 +31,19 @@ function blockToMarkdown(block: Block): string {
       return '---'
     case 'image':
       return `![${block.text || 'image'}](${block.imageUrl || ''})`
+    case 'database': {
+      const db = block.database
+      if (!db) return `### ${block.text || 'Database'}`
+      const header = db.columns.map((c) => c.name).join(' | ')
+      const sep = db.columns.map(() => '---').join(' | ')
+      const rows = db.rows
+        .map((row) => db.columns.map((c) => String(row.cells[c.id] ?? '')).join(' | '))
+        .join('\n')
+      return `### ${block.text || 'Database'}\n\n| ${header} |\n| ${sep} |\n${rows
+        .split('\n')
+        .map((r) => `| ${r} |`)
+        .join('\n')}`
+    }
     default:
       return block.text
   }

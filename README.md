@@ -1,40 +1,24 @@
 ﻿# Segara Notes
 
-Catatan bergaya Notion: block editor, halaman bersarang, slash menu, favorit, trash, dan sync API opsional.
+Catatan bergaya Notion: block editor, database sederhana, share link, dan sync API opsional.
 
-## Fitur
+## Fitur utama
 
-- Halaman nested + breadcrumb + drag reorder sidebar
-- Favorit, soft-delete (Trash), restore / hapus permanen
-- Cover gradient + icon emoji per halaman
-- Blok: teks, H1–H3, bullet, numbered, to-do, code, quote, callout, toggle, divider, image
-- Slash menu berkelompok + navigasi keyboard
-- Inline format (bold / italic / code / link) lewat toolbar seleksi
-- Indent list (`Tab` / `Shift+Tab`)
-- Mention halaman dengan `@`
-- Cari cepat `Ctrl+K` / `Cmd+K`
-- Drag & drop urutan blok + menu `⋯` (duplikat / hapus / indent)
-- Tema terang / gelap, export Markdown, sync Prisma/SQLite
-- UI guide: [UI-GUIDE.md](./UI-GUIDE.md)
-
-## Stack
-
-- React 19 + TypeScript + Vite
-- Express + Prisma 7 + SQLite
-- CSS variables
+- Halaman nested, favorit, trash, cover/icon, `Ctrl+K`
+- Blok lengkap + **Database** (tabel / board)
+- Inline format, `@` mention, slash menu
+- **Share** read-only (`?share=TOKEN`, butuh API)
+- **PIN** lokal (hash di browser)
+- Sync SQLite + poll ringan antar tab/klien
+- Export Markdown
 
 ## Jalankan
 
 ```bash
 npm install
-npm run dev:api   # terminal 1
-npm run dev       # terminal 2
+npm run db:migrate
+npm run dev:api   # :8787
+npm run dev       # Vite
 ```
 
-Tanpa API, data tetap di localStorage.
-
-## Roadmap berikutnya
-
-1. Auth + share link
-2. Database / board view
-3. Realtime kolaborasi
+Share & sync membutuhkan API. PIN tetap bekerja offline.

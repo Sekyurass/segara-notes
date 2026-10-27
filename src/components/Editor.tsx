@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { clampIndent, createBlock } from '../lib/blocks'
+import { createDefaultDatabase } from '../lib/database'
 import { numberedLabel, reorderBlocks } from '../lib/pages'
 import { COVER_PRESETS, PAGE_ICONS, coverCss } from '../lib/storage'
 import type { Block, BlockType, Page } from '../types'
@@ -50,13 +51,16 @@ export function Editor({
   }
 
   function turnInto(id: string, type: BlockType) {
-    updateBlock(id, {
+    const patch: Partial<Block> = {
       type,
       checked: type === 'todo' ? false : undefined,
       collapsed: type === 'toggle' ? false : undefined,
       calloutTone: type === 'callout' ? 'info' : undefined,
       imageUrl: type === 'image' ? '' : undefined,
-    })
+      database: type === 'database' ? createDefaultDatabase() : undefined,
+    }
+    if (type === 'database') patch.text = 'Database'
+    updateBlock(id, patch)
   }
 
   function insertAfter(id: string, type: BlockType = 'paragraph') {

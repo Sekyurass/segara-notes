@@ -6,8 +6,10 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { BLOCK_GLYPH, clampIndent, filterSlashItems } from '../lib/blocks'
+import { createDefaultDatabase } from '../lib/database'
 import { wrapLink, wrapSelection } from '../lib/format'
 import type { Block, BlockType, Page } from '../types'
+import { DatabaseBlock } from './DatabaseBlock'
 import { FormatToolbar } from './FormatToolbar'
 import { SlashMenu } from './SlashMenu'
 
@@ -129,10 +131,13 @@ export function BlockRow({
         checked: undefined,
         calloutTone: undefined,
         collapsed: undefined,
+        database: undefined,
       })
+    } else if (type === 'database') {
+      onTurnInto(type)
     } else {
       onTurnInto(type)
-      onChange({ text: '' })
+      onChange({ text: '', database: undefined })
     }
     setSlashOpen(false)
     setSlashQuery('')
@@ -253,6 +258,52 @@ export function BlockRow({
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', block.id)
     onDragStart(block.id)
+  }
+
+  if (block.type === 'database') {
+    const db = block.database ?? createDefaultDatabase(block.text || 'Database')
+    return (
+      <div
+        className={[
+          'block-row database-row',
+          isDragging ? 'is-dragging' : '',
+          isDragOver ? 'is-drag-over' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        onDragOver={(e) => {
+          e.preventDefault()
+          onDragOver(block.id)
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          onDrop(block.id)
+        }}
+      >
+        <div className="block-controls">
+          <button
+            type="button"
+            className="block-handle"
+            tabIndex={-1}
+            draggable
+            onDragStart={handleDragStart}
+            onDragEnd={onDragEnd}
+            aria-label="Seret database"
+          >
+            ⋮⋮
+          </button>
+        </div>
+        <div className="block-body">
+          <DatabaseBlock
+            title={block.text || 'Database'}
+            data={db}
+            onChangeTitle={(text) => onChange({ text })}
+            onChange={(database) => onChange({ database })}
+            onDeleteBlock={onDelete}
+          />
+        </div>
+      </div>
+    )
   }
 
   if (block.type === 'divider') {

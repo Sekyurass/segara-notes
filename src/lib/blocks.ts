@@ -1,4 +1,5 @@
 import type { Block, BlockType, SlashGroup, SlashItem } from '../types'
+import { createDefaultDatabase } from './database'
 import { createId } from './id'
 
 export const SLASH_ITEMS: SlashItem[] = [
@@ -93,6 +94,13 @@ export const SLASH_ITEMS: SlashItem[] = [
     keywords: ['image', 'img', 'photo', 'gambar'],
     group: 'media',
   },
+  {
+    type: 'database',
+    label: 'Database',
+    hint: 'Tabel / board sederhana',
+    keywords: ['database', 'table', 'board', 'kanban', 'db'],
+    group: 'media',
+  },
 ]
 
 export const SLASH_GROUP_LABEL: Record<SlashGroup, string> = {
@@ -115,18 +123,20 @@ export const BLOCK_GLYPH: Record<BlockType, string> = {
   callout: '💡',
   toggle: '▸',
   image: '🖼',
+  database: '▦',
 }
 
 export function createBlock(type: BlockType = 'paragraph', text = ''): Block {
   return {
     id: createId('block'),
     type,
-    text,
+    text: type === 'database' ? 'Database' : text,
     indent: 0,
     checked: type === 'todo' ? false : undefined,
     collapsed: type === 'toggle' ? false : undefined,
     calloutTone: type === 'callout' ? 'info' : undefined,
     imageUrl: type === 'image' ? '' : undefined,
+    database: type === 'database' ? createDefaultDatabase() : undefined,
   }
 }
 

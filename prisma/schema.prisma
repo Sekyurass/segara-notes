@@ -13,3 +13,10 @@ model WorkspaceSnapshot {
   data      String
   updatedAt DateTime @updatedAt
 }
+
+/// Link baca-saja ke satu halaman (snapshot live dari workspace).
+model ShareLink {
+  token     String   @id
+  pageId    String
+  createdAt DateTime @default(now())
+}

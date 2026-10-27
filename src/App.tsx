@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Sidebar } from './components/Sidebar'
 import { Editor } from './components/Editor'
 import { CommandPalette } from './components/CommandPalette'
+import { LockScreen } from './components/LockScreen'
+import { ShareModal } from './components/ShareModal'
+import { ShareView } from './components/ShareView'
 import {
+  fetchWorkspaceMeta,
   fetchWorkspaceRemote,
   pingApi,
   saveWorkspaceRemote,
@@ -18,6 +22,11 @@ import {
   reorderSiblingPages,
 } from './lib/pages'
 import { createId } from './lib/id'
+import {
+  hasWorkspaceLock,
+  isUnlockedSession,
+  lockSession,
+} from './lib/lock'
 import {
   createEmptyPage,
   loadWorkspace,
@@ -47,13 +56,25 @@ function syncLabel(status: SyncStatus): string {
   }
 }
 
+function readShareToken(): string | null {
+  const params = new URLSearchParams(window.location.search)
+  return params.get('share')
+}
+
 export default function App() {
+  const shareToken = useMemo(() => readShareToken(), [])
   const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace())
   const [theme, setTheme] = useState<Theme>(() => readTheme())
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('offline')
   const [hydrated, setHydrated] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
+  const [lockMode, setLockMode] = useState<'none' | 'unlock' | 'setup'>(() =>
+    hasWorkspaceLock() && !isUnlockedSession() ? 'unlock' : 'none',
+  )
+  const remoteStamp = useRef<string | null>(null)
+  const savingLocal = useRef(false)
 
   const livePages = useMemo(() => activePages(workspace.pages), [workspace.pages])
 
@@ -68,6 +89,7 @@ export default function App() {
   )
 
   useEffect(() => {
+    if (shareToken) return
     let cancelled = false
 
     async function boot() {
@@ -86,6 +108,8 @@ export default function App() {
       if (remote && Array.isArray(remote.pages) && remote.pages.length > 0) {
         setWorkspace(normalizeWorkspace(remote))
         setSyncStatus('online')
+        const meta = await fetchWorkspaceMeta()
+        remoteStamp.current = meta?.updatedAt ?? null
       } else {
         const local = loadWorkspace()
         const ok = await saveWorkspaceRemote(local)
@@ -99,11 +123,12 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [shareToken])
 
   useEffect(() => {
-    if (!hydrated) return
+    if (shareToken || !hydrated || lockMode !== 'none') return
     saveWorkspace(workspace)
+    savingLocal.current = true
 
     let cancelled = false
     const timer = window.setTimeout(async () => {
@@ -111,6 +136,7 @@ export default function App() {
       if (cancelled) return
       if (!online) {
         setSyncStatus('offline')
+        savingLocal.current = false
         return
       }
 
@@ -118,13 +144,39 @@ export default function App() {
       const ok = await saveWorkspaceRemote(workspace)
       if (cancelled) return
       setSyncStatus(ok ? 'online' : 'error')
+      if (ok) {
+        const meta = await fetchWorkspaceMeta()
+        remoteStamp.current = meta?.updatedAt ?? remoteStamp.current
+      }
+      savingLocal.current = false
     }, 700)
 
     return () => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [workspace, hydrated])
+  }, [workspace, hydrated, lockMode, shareToken])
+
+  // Light poll: pull remote if another client updated
+  useEffect(() => {
+    if (shareToken || lockMode !== 'none') return
+    const id = window.setInterval(async () => {
+      if (document.hidden || savingLocal.current) return
+      const meta = await fetchWorkspaceMeta()
+      if (!meta?.updatedAt) return
+      if (remoteStamp.current && meta.updatedAt !== remoteStamp.current) {
+        const remote = await fetchWorkspaceRemote()
+        if (remote) {
+          setWorkspace(normalizeWorkspace(remote))
+          remoteStamp.current = meta.updatedAt
+          setSyncStatus('online')
+        }
+      } else if (!remoteStamp.current) {
+        remoteStamp.current = meta.updatedAt
+      }
+    }, 8000)
+    return () => window.clearInterval(id)
+  }, [lockMode, shareToken])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -142,14 +194,25 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  if (shareToken) {
+    return <ShareView token={shareToken} />
+  }
+
+  if (lockMode !== 'none') {
+    return (
+      <LockScreen
+        mode={lockMode === 'setup' ? 'setup' : 'unlock'}
+        onUnlocked={() => setLockMode('none')}
+      />
+    )
+  }
+
   function openPage(id: string) {
     setWorkspace((prev) => ({
       ...prev,
       activePageId: id,
       recentPageIds: pushRecent(prev.recentPageIds ?? [], id),
-      pages: prev.pages.map((p) =>
-        p.id === id ? { ...p, updatedAt: Date.now() } : p,
-      ),
+      pages: prev.pages.map((p) => (p.id === id ? { ...p, updatedAt: Date.now() } : p)),
     }))
   }
 
@@ -295,13 +358,32 @@ export default function App() {
               {syncLabel(syncStatus)}
             </span>
           </div>
-          <button
-            type="button"
-            className="btn-ghost topbar-export"
-            onClick={() => downloadMarkdown(activePage)}
-          >
-            Export .md
-          </button>
+          <div className="topbar-actions">
+            <button type="button" className="btn-ghost topbar-export" onClick={() => setShareOpen(true)}>
+              Share
+            </button>
+            <button
+              type="button"
+              className="btn-ghost topbar-export"
+              onClick={() => {
+                if (hasWorkspaceLock()) {
+                  lockSession()
+                  setLockMode('unlock')
+                } else {
+                  setLockMode('setup')
+                }
+              }}
+            >
+              {hasWorkspaceLock() ? 'Kunci' : 'PIN'}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost topbar-export"
+              onClick={() => downloadMarkdown(activePage)}
+            >
+              Export .md
+            </button>
+          </div>
         </div>
         <div className="editor-scroll">
           <Editor
@@ -322,6 +404,13 @@ export default function App() {
         workspace={workspace}
         onClose={() => setPaletteOpen(false)}
         onSelect={openPage}
+      />
+
+      <ShareModal
+        open={shareOpen}
+        pageId={activePage.id}
+        pageTitle={activePage.title}
+        onClose={() => setShareOpen(false)}
       />
     </div>
   )

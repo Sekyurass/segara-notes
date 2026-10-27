@@ -1,0 +1,6 @@
+-- CreateTable
+CREATE TABLE "ShareLink" (
+    "token" TEXT NOT NULL PRIMARY KEY,
+    "pageId" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
