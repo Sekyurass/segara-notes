@@ -1,4 +1,4 @@
-﻿# Segara Notes
+# Segara Notes
 
 Catatan bergaya Notion dengan UI **shadcn/ui** + Tailwind CSS v4.
 

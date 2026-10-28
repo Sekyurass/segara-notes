@@ -8,7 +8,9 @@ import {
 import { BLOCK_GLYPH, clampIndent, filterSlashItems } from '../lib/blocks'
 import { createDefaultDatabase } from '../lib/database'
 import { wrapLink, wrapSelection } from '../lib/format'
-import type { Block, BlockType, Page } from '../types'
+import { formatMention, resolveMentionPage, splitMentions } from '../lib/mentions'
+import type { Block, BlockType, CalloutTone, Page } from '../types'
+import { LocalImage } from './LocalImage'
 import { DatabaseBlock } from './DatabaseBlock'
 import { FormatToolbar } from './FormatToolbar'
 import { SlashMenu } from './SlashMenu'
@@ -28,6 +30,7 @@ type Props = {
   onDelete: () => void
   onTurnInto: (type: BlockType) => void
   onMentionPage: (page: Page) => void
+  onPromoteToTask?: (title: string) => void
   onDragStart: (id: string) => void
   onDragOver: (id: string) => void
   onDrop: (id: string) => void
@@ -55,6 +58,7 @@ export function BlockRow({
   onDelete,
   onTurnInto,
   onMentionPage,
+  onPromoteToTask,
   onDragStart,
   onDragOver,
   onDrop,
@@ -123,21 +127,47 @@ export function BlockRow({
 
   function applySlash(type: BlockType) {
     if (type === 'image') {
-      const url = window.prompt('URL gambar', block.imageUrl || 'https://')
+      void (async () => {
+        const useFile = window.confirm('Unggah file lokal?\nOK = file · Cancel = URL')
+        let imageUrl = ''
+        if (useFile) {
+          const { pickLocalFile, storeLocalFile } = await import('@/lib/media')
+          const file = await pickLocalFile('image/*')
+          if (file) imageUrl = await storeLocalFile(file)
+        } else {
+          imageUrl = window.prompt('URL gambar', block.imageUrl || 'https://')?.trim() || ''
+        }
+        onChange({
+          type,
+          text: '',
+          imageUrl,
+          embedUrl: undefined,
+          checked: undefined,
+          calloutTone: undefined,
+          collapsed: undefined,
+          database: undefined,
+        })
+      })()
+    } else if (type === 'embed' || type === 'bookmark') {
+      const url = window.prompt(
+        type === 'embed' ? 'URL embed (YouTube, Figma, situs…)' : 'URL bookmark',
+        block.embedUrl || 'https://',
+      )
       onChange({
         type,
-        text: '',
-        imageUrl: url?.trim() || '',
+        text: type === 'bookmark' ? url?.trim() || '' : '',
+        embedUrl: url?.trim() || '',
+        imageUrl: undefined,
+        database: undefined,
         checked: undefined,
         calloutTone: undefined,
         collapsed: undefined,
-        database: undefined,
       })
     } else if (type === 'database') {
       onTurnInto(type)
     } else {
       onTurnInto(type)
-      onChange({ text: '', database: undefined })
+      onChange({ text: '', database: undefined, embedUrl: undefined })
     }
     setSlashOpen(false)
     setSlashQuery('')
@@ -151,16 +181,19 @@ export function BlockRow({
     const before = block.text.slice(0, caret)
     const at = before.lastIndexOf('@')
     if (at < 0) return
-    const next = `${block.text.slice(0, at)}[[${page.title || 'Tanpa judul'}]]${block.text.slice(caret)}`
+    const token = formatMention(page)
+    const next = `${block.text.slice(0, at)}${token}${block.text.slice(caret)}`
     onChange({ text: next })
     onMentionPage(page)
     setMentionOpen(false)
     requestAnimationFrame(() => {
-      const pos = at + 2 + (page.title || 'Tanpa judul').length + 2
+      const pos = at + token.length
       el.focus()
       el.setSelectionRange(pos, pos)
     })
   }
+
+  const mentionParts = splitMentions(block.text).filter((p) => p.kind === 'mention')
 
   function applyWrap(before: string, after?: string) {
     const el = ref.current
@@ -316,7 +349,6 @@ export function BlockRow({
         ]
           .filter(Boolean)
           .join(' ')}
-        style={{ paddingLeft: indent * 24 }}
         onDragOver={(e) => {
           e.preventDefault()
           onDragOver(block.id)
@@ -326,19 +358,18 @@ export function BlockRow({
           onDrop(block.id)
         }}
       >
-        <button
-          type="button"
-          className="block-handle"
-          tabIndex={-1}
-          draggable
-          onDragStart={handleDragStart}
-          onDragEnd={onDragEnd}
-          aria-label="Seret divider"
-        >
-          ⋮⋮
-        </button>
-        <div className="block-body divider-body">
-          <hr className="block-divider" />
+        <div className="block-controls">
+          <button
+            type="button"
+            className="block-handle"
+            tabIndex={-1}
+            draggable
+            onDragStart={handleDragStart}
+            onDragEnd={onDragEnd}
+            aria-label="Seret divider"
+          >
+            ⋮⋮
+          </button>
           <button type="button" className="block-more" onClick={() => setMenuOpen((v) => !v)}>
             ⋯
           </button>
@@ -353,6 +384,9 @@ export function BlockRow({
             </div>
           )}
         </div>
+        <div className="block-body divider-body" style={{ paddingLeft: indent * 24 }}>
+          <hr className="block-divider" />
+        </div>
       </div>
     )
   }
@@ -362,7 +396,11 @@ export function BlockRow({
       className={[
         'block-row',
         block.type === 'todo' && block.checked ? 'todo-done' : '',
-        block.type === 'callout' ? `callout callout-${block.calloutTone ?? 'info'}` : '',
+        block.type === 'callout'
+          ? `callout callout-${block.calloutTone ?? 'info'}`
+          : block.type === 'comment'
+            ? 'callout'
+            : '',
         block.type === 'quote' ? 'is-quote' : '',
         block.type === 'toggle' ? 'is-toggle' : '',
         isDragging ? 'is-dragging' : '',
@@ -370,7 +408,6 @@ export function BlockRow({
       ]
         .filter(Boolean)
         .join(' ')}
-      style={{ paddingLeft: indent * 24 }}
       onDragOver={(e) => {
         e.preventDefault()
         onDragOver(block.id)
@@ -410,6 +447,17 @@ export function BlockRow({
             <button type="button" onClick={() => { onTurnInto('paragraph'); setMenuOpen(false) }}>
               Jadi teks
             </button>
+            {onPromoteToTask && (
+              <button
+                type="button"
+                onClick={() => {
+                  onPromoteToTask(block.text)
+                  setMenuOpen(false)
+                }}
+              >
+                Kirim ke Tugas
+              </button>
+            )}
             <button type="button" onClick={() => { onIndent(1); setMenuOpen(false) }}>
               Indent
             </button>
@@ -423,7 +471,7 @@ export function BlockRow({
         )}
       </div>
 
-      <div className="block-body">
+      <div className="block-body" style={{ paddingLeft: indent * 24 }}>
         {block.type === 'bullet' && <span className="bullet-mark">•</span>}
         {block.type === 'numbered' && <span className="bullet-mark">{numberLabel}.</span>}
         {block.type === 'todo' && (
@@ -446,10 +494,54 @@ export function BlockRow({
           </button>
         )}
         {block.type === 'callout' && <span className="callout-mark">💡</span>}
+        {block.type === 'comment' && <span className="callout-mark">💬</span>}
 
         <div className="block-main">
+          {block.type === 'callout' && (
+            <div className="mb-1 flex gap-1">
+              {(['info', 'warn', 'success'] as CalloutTone[]).map((tone) => (
+                <button
+                  key={tone}
+                  type="button"
+                  className={`rounded px-1.5 py-0.5 text-[0.65rem] ${
+                    (block.calloutTone ?? 'info') === tone
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'
+                  }`}
+                  onClick={() => onChange({ calloutTone: tone })}
+                >
+                  {tone}
+                </button>
+              ))}
+            </div>
+          )}
+
           {block.type === 'image' && block.imageUrl ? (
-            <img className="block-image" src={block.imageUrl} alt={block.text || 'gambar'} />
+            <LocalImage className="block-image" src={block.imageUrl} alt={block.text || 'gambar'} />
+          ) : null}
+
+          {block.type === 'embed' && block.embedUrl ? (
+            <div className="mb-2 overflow-hidden rounded-lg border border-border">
+              <iframe
+                title="Embed"
+                src={block.embedUrl}
+                className="aspect-video w-full bg-muted"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+          ) : null}
+
+          {block.type === 'bookmark' && block.embedUrl ? (
+            <a
+              href={block.embedUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mb-2 block rounded-lg border border-border px-3 py-2 text-sm hover:bg-accent"
+            >
+              <div className="font-medium">{block.text || 'Bookmark'}</div>
+              <div className="truncate text-xs text-muted-foreground">{block.embedUrl}</div>
+            </a>
           ) : null}
 
           {!(block.type === 'toggle' && block.collapsed) && (
@@ -472,11 +564,17 @@ export function BlockRow({
                           ? 'Kutipan…'
                           : block.type === 'callout'
                             ? 'Callout…'
-                            : block.type === 'image'
-                              ? 'Caption…'
-                              : block.type === 'toggle'
-                                ? 'Judul toggle…'
-                                : 'Ketik / untuk perintah, @ untuk halaman'
+                            : block.type === 'comment'
+                              ? 'Komentar…'
+                              : block.type === 'image'
+                                ? 'Caption…'
+                                : block.type === 'embed'
+                                  ? 'Catatan embed…'
+                                  : block.type === 'bookmark'
+                                    ? 'Judul bookmark…'
+                                    : block.type === 'toggle'
+                                      ? 'Judul toggle…'
+                                      : 'Ketik / untuk perintah, @ untuk halaman'
               }
               onChange={(e) => {
                 const value = e.target.value
@@ -497,6 +595,27 @@ export function BlockRow({
                 }, 150)
               }}
             />
+          )}
+
+          {mentionParts.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {mentionParts.map((part, i) => {
+                if (part.kind !== 'mention') return null
+                const target = resolveMentionPage(pages, part)
+                return (
+                  <button
+                    key={`${part.label}-${i}`}
+                    type="button"
+                    className="rounded-md bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground hover:opacity-90"
+                    onClick={() => target && onMentionPage(target)}
+                    disabled={!target}
+                    title={target ? `Buka ${target.title}` : 'Halaman tidak ditemukan'}
+                  >
+                    {target?.icon ?? '📄'} {part.label}
+                  </button>
+                )
+              })}
+            </div>
           )}
 
           {block.type === 'toggle' && block.collapsed && (

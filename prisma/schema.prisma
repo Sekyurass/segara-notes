@@ -7,16 +7,18 @@ datasource db {
   provider = "sqlite"
 }
 
-/// Satu baris menyimpan seluruh workspace JSON (pages + blocks).
+/// Satu baris per workspace id (multi-user / multi-profile).
 model WorkspaceSnapshot {
   id        String   @id @default("default")
   data      String
   updatedAt DateTime @updatedAt
 }
 
-/// Link baca-saja ke satu halaman (snapshot live dari workspace).
+/// Link share — canEdit mengizinkan PUT halaman.
 model ShareLink {
-  token     String   @id
-  pageId    String
-  createdAt DateTime @default(now())
+  token       String   @id
+  pageId      String
+  workspaceId String   @default("default")
+  canEdit     Boolean  @default(false)
+  createdAt   DateTime @default(now())
 }

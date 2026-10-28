@@ -1,13 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Lock, Menu, Share2 } from 'lucide-react'
+import {
+  Download,
+  Ellipsis,
+  Lock,
+  Menu,
+  Redo2,
+  Settings2,
+  Share2,
+  Undo2,
+  Upload,
+} from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { Editor } from './components/Editor'
 import { CommandPalette } from './components/CommandPalette'
 import { LockScreen } from './components/LockScreen'
 import { ShareModal } from './components/ShareModal'
 import { ShareView } from './components/ShareView'
-import { Badge } from '@/components/ui/badge'
+import { SettingsPanel } from './components/SettingsPanel'
+import { TasksView } from './components/TasksView'
+import { TodayView } from './components/TodayView'
+import { ActivityView } from './components/ActivityView'
+import { MobileBottomNav } from './components/MobileBottomNav'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Kbd } from '@/components/ui/kbd'
 import {
   fetchWorkspaceMeta,
@@ -16,27 +38,61 @@ import {
   saveWorkspaceRemote,
   type SyncStatus,
 } from './lib/api'
+import {
+  ensureNotificationPermission,
+  notificationSupported,
+  notifyDueTasks,
+} from './lib/notifications'
+import { connectRealtime, type PresencePeer, type RealtimeHandle } from './lib/realtime'
+import { pushActivity } from './lib/activity'
+import {
+  clearOfflineQueue,
+  enqueueOfflineWorkspace,
+  hasOfflinePending,
+  peekOfflineWorkspace,
+} from './lib/offline'
+import { mergeWorkspaces } from './lib/sync'
+import {
+  createProfile,
+  getActiveProfile,
+  getActiveProfileId,
+  loadProfiles,
+  setActiveProfileId,
+  type UserProfile,
+} from './lib/profiles'
+import { clickupFetchListTasks, clickupPing, mapClickUpPriority } from './lib/clickup'
+import {
+  emptyHistory,
+  pushHistory,
+  redoHistory,
+  undoHistory,
+  type HistoryState,
+} from './lib/history'
 import { downloadMarkdown } from './lib/markdown'
 import {
   activePages,
   collectDescendantIds,
+  dropPageOn,
   getBreadcrumb,
   nextOrder,
   pushRecent,
-  reorderSiblingPages,
 } from './lib/pages'
+import { applyPrefs, loadPrefs, savePrefs, type AppPrefs } from './lib/prefs'
 import { createId } from './lib/id'
 import {
   hasWorkspaceLock,
   isUnlockedSession,
   lockSession,
 } from './lib/lock'
+import { PAGE_TEMPLATES } from './lib/templates'
 import {
   createEmptyPage,
+  exportWorkspaceJson,
+  importWorkspaceJson,
   loadWorkspace,
-  normalizeWorkspace,
   saveWorkspace,
 } from './lib/storage'
+import { createTask, tasksForPage } from './lib/tasks'
 import type { Page, Workspace } from './types'
 
 type Theme = 'light' | 'dark'
@@ -47,12 +103,16 @@ function readTheme(): Theme {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
-function syncLabel(status: SyncStatus): string {
+function syncLabel(status: SyncStatus, live: boolean, peers: number): string {
   switch (status) {
     case 'online':
+      if (live && peers > 1) return `Live · ${peers}`
+      if (live) return 'Live'
       return 'Tersinkron'
     case 'saving':
       return 'Menyimpan…'
+    case 'pending':
+      return 'Menunggu sync'
     case 'error':
       return 'Gagal sync'
     default:
@@ -77,8 +137,23 @@ export default function App() {
   const [lockMode, setLockMode] = useState<'none' | 'unlock' | 'setup'>(() =>
     hasWorkspaceLock() && !isUnlockedSession() ? 'unlock' : 'none',
   )
+  const [history, setHistory] = useState<HistoryState>(() => emptyHistory())
+  const [prefs, setPrefs] = useState<AppPrefs>(() => loadPrefs())
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null)
+  const [liveConnected, setLiveConnected] = useState(false)
+  const [livePeers, setLivePeers] = useState(0)
+  const [presenceList, setPresenceList] = useState<PresencePeer[]>([])
+  const [profiles] = useState<UserProfile[]>(() => loadProfiles())
+  const [activeProfileId] = useState(() => getActiveProfileId())
   const remoteStamp = useRef<string | null>(null)
   const savingLocal = useRef(false)
+  const skipHistory = useRef(false)
+  const historyTimer = useRef<number | null>(null)
+  const importRef = useRef<HTMLInputElement>(null)
+  const realtimeRef = useRef<RealtimeHandle | null>(null)
+  const workspaceRef = useRef(workspace)
+  workspaceRef.current = workspace
 
   const livePages = useMemo(() => activePages(workspace.pages), [workspace.pages])
 
@@ -101,23 +176,33 @@ export default function App() {
       if (cancelled) return
 
       if (!online) {
-        setSyncStatus('offline')
+        const pending = await hasOfflinePending()
+        setSyncStatus(pending ? 'pending' : 'offline')
         setHydrated(true)
         return
       }
 
+      const queued = (await hasOfflinePending()) ? await peekOfflineWorkspace() : null
       const remote = await fetchWorkspaceRemote()
       if (cancelled) return
 
       if (remote && Array.isArray(remote.pages) && remote.pages.length > 0) {
-        setWorkspace(normalizeWorkspace(remote))
-        setSyncStatus('online')
+        const local = queued ?? loadWorkspace()
+        const merged = mergeWorkspaces(local, remote)
+        setWorkspace(merged)
+        const ok = await saveWorkspaceRemote(merged)
+        if (ok) await clearOfflineQueue()
+        setSyncStatus(ok ? 'online' : 'error')
         const meta = await fetchWorkspaceMeta()
         remoteStamp.current = meta?.updatedAt ?? null
       } else {
-        const local = loadWorkspace()
+        const local = queued ?? loadWorkspace()
         const ok = await saveWorkspaceRemote(local)
-        if (!cancelled) setSyncStatus(ok ? 'online' : 'error')
+        if (ok) await clearOfflineQueue()
+        if (!cancelled) {
+          setWorkspace(local)
+          setSyncStatus(ok ? 'online' : 'error')
+        }
       }
 
       if (!cancelled) setHydrated(true)
@@ -139,7 +224,8 @@ export default function App() {
       const online = await pingApi()
       if (cancelled) return
       if (!online) {
-        setSyncStatus('offline')
+        await enqueueOfflineWorkspace(workspace)
+        setSyncStatus('pending')
         savingLocal.current = false
         return
       }
@@ -147,10 +233,14 @@ export default function App() {
       setSyncStatus('saving')
       const ok = await saveWorkspaceRemote(workspace)
       if (cancelled) return
-      setSyncStatus(ok ? 'online' : 'error')
       if (ok) {
+        await clearOfflineQueue()
         const meta = await fetchWorkspaceMeta()
         remoteStamp.current = meta?.updatedAt ?? remoteStamp.current
+        setSyncStatus('online')
+      } else {
+        await enqueueOfflineWorkspace(workspace)
+        setSyncStatus('pending')
       }
       savingLocal.current = false
     }, 700)
@@ -161,42 +251,161 @@ export default function App() {
     }
   }, [workspace, hydrated, lockMode, shareToken])
 
-  // Light poll: pull remote if another client updated
+  async function pullRemoteIfNewer(updatedAt?: string) {
+    if (savingLocal.current) return
+    const stamp = updatedAt ?? (await fetchWorkspaceMeta())?.updatedAt
+    if (!stamp) return
+    if (remoteStamp.current && stamp === remoteStamp.current) return
+    const remote = await fetchWorkspaceRemote()
+    if (!remote) return
+    skipHistory.current = true
+    setWorkspace((local) => mergeWorkspaces(local, remote))
+    remoteStamp.current = stamp
+    setSyncStatus('online')
+  }
+
+  // WebSocket live sync (+ poll cadangan saat WS putus)
   useEffect(() => {
-    if (shareToken || lockMode !== 'none') return
-    const id = window.setInterval(async () => {
-      if (document.hidden || savingLocal.current) return
-      const meta = await fetchWorkspaceMeta()
-      if (!meta?.updatedAt) return
-      if (remoteStamp.current && meta.updatedAt !== remoteStamp.current) {
-        const remote = await fetchWorkspaceRemote()
-        if (remote) {
-          setWorkspace(normalizeWorkspace(remote))
-          remoteStamp.current = meta.updatedAt
-          setSyncStatus('online')
-        }
-      } else if (!remoteStamp.current) {
-        remoteStamp.current = meta.updatedAt
-      }
-    }, 8000)
-    return () => window.clearInterval(id)
-  }, [lockMode, shareToken])
+    if (shareToken || lockMode !== 'none' || !hydrated) return
+
+    let wsOk = false
+    const rt = connectRealtime({
+      onConnected: (ok) => {
+        wsOk = ok
+        setLiveConnected(ok)
+      },
+      onPresence: (count, list) => {
+        setLivePeers(count)
+        setPresenceList(list)
+      },
+      onWorkspaceUpdated: (updatedAt) => {
+        void pullRemoteIfNewer(updatedAt)
+      },
+    })
+    realtimeRef.current = rt
+    const profile = getActiveProfile()
+    rt.setPresence({
+      name: workspaceRef.current.displayName || profile.name,
+      pageId: workspaceRef.current.activePageId,
+      color: profile.color,
+    })
+
+    const poll = window.setInterval(() => {
+      if (document.hidden || savingLocal.current || wsOk) return
+      void pullRemoteIfNewer()
+    }, 20_000)
+
+    return () => {
+      realtimeRef.current = null
+      rt.disconnect()
+      window.clearInterval(poll)
+    }
+  }, [lockMode, shareToken, hydrated, activeProfileId])
+
+  useEffect(() => {
+    if (!realtimeRef.current) return
+    const profile = getActiveProfile()
+    realtimeRef.current.setPresence({
+      name: workspace.displayName || profile.name,
+      pageId: workspace.mode === 'notes' ? workspace.activePageId : null,
+      color: profile.color,
+    })
+  }, [workspace.activePageId, workspace.displayName, workspace.mode, activeProfileId])
+
+  // Notifikasi OS untuk due / overdue
+  useEffect(() => {
+    if (shareToken || lockMode !== 'none' || !hydrated || !prefs.notifyDue) return
+    if (!notificationSupported()) return
+
+    let cancelled = false
+
+    async function tick() {
+      if (cancelled || document.hidden) return
+      const perm = await ensureNotificationPermission()
+      if (cancelled || perm !== 'granted') return
+      notifyDueTasks(workspaceRef.current)
+    }
+
+    void tick()
+    const id = window.setInterval(() => void tick(), 60_000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void tick()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [shareToken, lockMode, hydrated, prefs.notifyDue])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
     localStorage.setItem('segara-notes:theme', theme)
-  }, [theme])
+    applyPrefs(prefs)
+  }, [theme, prefs])
+
+  useEffect(() => {
+    savePrefs(prefs)
+  }, [prefs])
+
+  const prevWorkspace = useRef(workspace)
+  useEffect(() => {
+    if (shareToken || lockMode !== 'none') {
+      prevWorkspace.current = workspace
+      return
+    }
+    if (skipHistory.current) {
+      skipHistory.current = false
+      prevWorkspace.current = workspace
+      return
+    }
+    const snapshot = prevWorkspace.current
+    if (historyTimer.current) window.clearTimeout(historyTimer.current)
+    historyTimer.current = window.setTimeout(() => {
+      setHistory((prev) => pushHistory(prev, snapshot))
+    }, 450)
+    prevWorkspace.current = workspace
+    return () => {
+      if (historyTimer.current) window.clearTimeout(historyTimer.current)
+    }
+  }, [workspace, shareToken, lockMode])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen(true)
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        setHistory((prev) => {
+          const result = undoHistory(prev, workspace)
+          if (!result) return prev
+          skipHistory.current = true
+          setWorkspace(result.next)
+          return result.history
+        })
+        return
+      }
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))
+      ) {
+        e.preventDefault()
+        setHistory((prev) => {
+          const result = redoHistory(prev, workspace)
+          if (!result) return prev
+          skipHistory.current = true
+          setWorkspace(result.next)
+          return result.history
+        })
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [workspace])
 
   if (shareToken) {
     return <ShareView token={shareToken} />
@@ -214,28 +423,163 @@ export default function App() {
   function openPage(id: string) {
     setWorkspace((prev) => ({
       ...prev,
+      mode: 'notes',
       activePageId: id,
       recentPageIds: pushRecent(prev.recentPageIds ?? [], id),
       pages: prev.pages.map((p) => (p.id === id ? { ...p, updatedAt: Date.now() } : p)),
     }))
   }
 
-  function patchActive(partial: Partial<Page>) {
+  function patchWorkspace(partial: Partial<Workspace>) {
     setWorkspace((prev) => ({
       ...prev,
-      pages: prev.pages.map((page) => {
+      ...partial,
+      revision: (prev.revision ?? 0) + 1,
+    }))
+  }
+
+  function switchProfile(id: string) {
+    saveWorkspace(workspace)
+    setActiveProfileId(id)
+    window.location.reload()
+  }
+
+  function handleCreateProfile(name: string) {
+    saveWorkspace(workspace)
+    createProfile(name)
+    window.location.reload()
+  }
+
+  async function handleClickupImport(): Promise<number> {
+    if (!prefs.clickupToken || !prefs.clickupListId) return -1
+    try {
+      const remoteTasks = await clickupFetchListTasks(prefs.clickupToken, prefs.clickupListId)
+      const listId = workspace.activeTaskListId || workspace.taskLists[0]?.id
+      const statusId =
+        workspace.taskStatuses.find((s) => s.category === 'open')?.id ??
+        workspace.taskStatuses[0]?.id
+      if (!listId || !statusId) return -1
+      const imported = remoteTasks.map((t) =>
+        createTask({
+          listId,
+          statusId,
+          title: t.name,
+          description: t.description ?? '',
+          priority: mapClickUpPriority(t.priority),
+          dueDate: t.due_date
+            ? new Date(Number(t.due_date)).toISOString().slice(0, 10)
+            : null,
+          tags: (t.tags ?? []).map((x) => x.name),
+          assignee: t.assignees?.[0]?.username ?? null,
+        }),
+      )
+      setWorkspace((prev) =>
+        pushActivity(
+          {
+            ...prev,
+            tasks: [...imported, ...prev.tasks],
+            mode: 'tasks',
+          },
+          { kind: 'import', summary: `Impor ${imported.length} task dari ClickUp` },
+        ),
+      )
+      return imported.length
+    } catch {
+      return -1
+    }
+  }
+
+  function promoteBlockToTask(title: string, pageId: string) {
+    const listId = workspace.activeTaskListId || workspace.taskLists[0]?.id
+    const statusId =
+      workspace.taskStatuses.find((s) => s.category === 'open')?.id ?? workspace.taskStatuses[0]?.id
+    if (!listId || !statusId) return
+    setWorkspace((prev) => ({
+      ...prev,
+      mode: 'tasks',
+      tasks: [
+        createTask({ listId, statusId, title: title || 'Tugas dari catatan', pageId }),
+        ...prev.tasks,
+      ],
+    }))
+  }
+
+  function createLinkedTask(pageId: string, title?: string) {
+    const listId = workspace.activeTaskListId || workspace.taskLists[0]?.id
+    const statusId =
+      workspace.taskStatuses.find((s) => s.category === 'open')?.id ?? workspace.taskStatuses[0]?.id
+    if (!listId || !statusId) return
+    const page = workspace.pages.find((p) => p.id === pageId)
+    setWorkspace((prev) => ({
+      ...prev,
+      tasks: [
+        createTask({
+          listId,
+          statusId,
+          title: title || page?.title || 'Tugas dari catatan',
+          pageId,
+          priority: 'normal',
+        }),
+        ...prev.tasks,
+      ],
+    }))
+  }
+
+  function unlinkTask(taskId: string) {
+    setWorkspace((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((t) =>
+        t.id === taskId ? { ...t, pageId: null, updatedAt: Date.now() } : t,
+      ),
+    }))
+  }
+
+  function openTasksMode() {
+    setWorkspace((prev) => ({ ...prev, mode: 'tasks' }))
+  }
+
+  function patchActive(partial: Partial<Page>) {
+    setWorkspace((prev) => {
+      const pages = prev.pages.map((page) => {
         if (page.id !== prev.activePageId) return page
         return {
           ...page,
           ...partial,
           updatedAt: Date.now(),
         }
-      }),
-    }))
+      })
+      let next: Workspace = { ...prev, pages, revision: (prev.revision ?? 0) + 1 }
+      if (partial.comments) {
+        next = pushActivity(next, {
+          kind: 'comment',
+          summary: 'Komentar diperbarui',
+          pageId: prev.activePageId,
+        })
+      } else if (partial.title !== undefined && !partial.blocks) {
+        next = pushActivity(next, {
+          kind: 'page',
+          summary: `Ganti judul · ${partial.title || 'Tanpa judul'}`,
+          pageId: prev.activePageId,
+        })
+      }
+      return next
+    })
   }
 
   function createRootPage() {
     const page = createEmptyPage('Halaman tanpa judul', null, nextOrder(workspace.pages, null))
+    setWorkspace((prev) => ({
+      ...prev,
+      activePageId: page.id,
+      pages: [page, ...prev.pages],
+      recentPageIds: pushRecent(prev.recentPageIds ?? [], page.id),
+    }))
+  }
+
+  function createFromTemplate(templateId: string) {
+    const tpl = PAGE_TEMPLATES.find((t) => t.id === templateId) ?? PAGE_TEMPLATES[0]
+    const page = tpl.build(null)
+    page.order = nextOrder(workspace.pages, null)
     setWorkspace((prev) => ({
       ...prev,
       activePageId: page.id,
@@ -309,117 +653,262 @@ export default function App() {
 
   if (!activePage) return null
 
-  const syncVariant =
-    syncStatus === 'online'
-      ? 'default'
-      : syncStatus === 'error'
-        ? 'destructive'
-        : 'secondary'
-
   return (
     <div className="app-shell">
       <Sidebar
         pages={workspace.pages}
         activePageId={activePage.id}
         theme={theme}
+        mode={workspace.mode}
+        taskCount={workspace.tasks.filter((t) => !t.parentTaskId).length}
+        taskLists={workspace.taskLists}
+        activeTaskListId={workspace.activeTaskListId}
         mobileOpen={mobileNav}
         onCloseMobile={() => setMobileNav(false)}
         onSelect={openPage}
+        onSetMode={(mode) => patchWorkspace({ mode })}
+        onSelectTaskList={(id) => patchWorkspace({ activeTaskListId: id, mode: 'tasks' })}
+        onCreateTaskList={() => {
+          const name = window.prompt('Nama list baru', 'List')
+          if (!name?.trim()) return
+          const next = {
+            id: `list-${Date.now()}`,
+            name: name.trim(),
+            icon: '📋',
+            order: workspace.taskLists.length,
+          }
+          patchWorkspace({
+            taskLists: [...workspace.taskLists, next],
+            activeTaskListId: next.id,
+            mode: 'tasks' as const,
+          })
+        }}
         onCreateRoot={createRootPage}
-        onCreateChild={createChildPage}
-        onSoftDelete={softDeletePage}
         onRestore={restorePage}
         onPurge={purgePage}
-        onToggleFavorite={(id) =>
+        onReorder={(fromId, toId, mode) =>
           setWorkspace((prev) => ({
             ...prev,
-            pages: prev.pages.map((p) =>
-              p.id === id ? { ...p, favorite: !p.favorite, updatedAt: Date.now() } : p,
-            ),
-          }))
-        }
-        onReorder={(fromId, toId) =>
-          setWorkspace((prev) => ({
-            ...prev,
-            pages: reorderSiblingPages(prev.pages, fromId, toId),
+            pages: dropPageOn(prev.pages, fromId, toId, mode),
           }))
         }
         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
         onOpenSearch={() => setPaletteOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
-      <main className="flex min-w-0 flex-col bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent)]">
-        <div className="flex items-center justify-between gap-3 border-b border-transparent px-3 py-2.5 sm:px-5">
-          <div className="flex flex-wrap items-center gap-2">
+      <main className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+        <div className="app-topbar">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Button
               type="button"
               variant="ghost"
-              size="icon-sm"
+              size="icon-xs"
               className="md:hidden"
               aria-label="Menu"
               onClick={() => setMobileNav(true)}
             >
               <Menu />
             </Button>
-            <Badge variant="secondary" className="gap-1.5 font-normal">
-              <Kbd>/</Kbd> blok
-            </Badge>
-            <Badge variant="secondary" className="hidden gap-1.5 font-normal sm:inline-flex">
-              <Kbd>Ctrl+K</Kbd> cari
-            </Badge>
-            <Badge variant={syncVariant} className="font-normal">
-              {syncLabel(syncStatus)}
-            </Badge>
+            <button
+              type="button"
+              className="hidden items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] text-muted-foreground hover:bg-muted sm:inline-flex"
+              onClick={() => setPaletteOpen(true)}
+            >
+              <Kbd className="h-5">Ctrl+K</Kbd>
+              <span>Cari</span>
+            </button>
+            <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
+              <span
+                className={cn(
+                  'size-1.5 rounded-full',
+                  syncStatus === 'online'
+                    ? 'bg-emerald-500'
+                    : syncStatus === 'error'
+                      ? 'bg-destructive'
+                      : syncStatus === 'saving' || syncStatus === 'pending'
+                        ? 'bg-amber-500'
+                        : 'bg-muted-foreground/50',
+                )}
+              />
+              {syncLabel(syncStatus, liveConnected, livePeers)}
+            </span>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={() => setShareOpen(true)}>
-              <Share2 /> Share
-            </Button>
+          <div className="flex flex-wrap items-center gap-0.5">
             <Button
               type="button"
-              variant="secondary"
-              size="sm"
+              variant="ghost"
+              size="icon-xs"
+              title="Undo (Ctrl+Z)"
               onClick={() => {
-                if (hasWorkspaceLock()) {
-                  lockSession()
-                  setLockMode('unlock')
-                } else {
-                  setLockMode('setup')
-                }
+                const result = undoHistory(history, workspace)
+                if (!result) return
+                skipHistory.current = true
+                setWorkspace(result.next)
+                setHistory(result.history)
               }}
             >
-              <Lock />
-              {hasWorkspaceLock() ? 'Kunci' : 'PIN'}
+              <Undo2 />
             </Button>
             <Button
               type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => downloadMarkdown(activePage)}
+              variant="ghost"
+              size="icon-xs"
+              title="Redo (Ctrl+Y)"
+              onClick={() => {
+                const result = redoHistory(history, workspace)
+                if (!result) return
+                skipHistory.current = true
+                setWorkspace(result.next)
+                setHistory(result.history)
+              }}
             >
-              Export .md
+              <Redo2 />
             </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              title="Share"
+              onClick={() => setShareOpen(true)}
+            >
+              <Share2 />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="icon-xs">
+                  <Ellipsis />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => {
+                    if (hasWorkspaceLock()) {
+                      lockSession()
+                      setLockMode('unlock')
+                    } else {
+                      setLockMode('setup')
+                    }
+                  }}
+                >
+                  <Lock /> {hasWorkspaceLock() ? 'Kunci workspace' : 'Atur PIN'}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => downloadMarkdown(activePage)}>
+                  <Download /> Export Markdown
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportWorkspaceJson(workspace)}>
+                  <Download /> Backup JSON
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => importRef.current?.click()}>
+                  <Upload /> Import JSON
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+                  <Settings2 /> Kustomisasi & ClickUp
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <input
+              ref={importRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (!file) return
+                void importWorkspaceJson(file).then((ws) => {
+                  skipHistory.current = true
+                  setHistory(emptyHistory())
+                  setWorkspace(ws)
+                })
+              }}
+            />
           </div>
         </div>
-        <div className="editor-scroll">
-          <Editor
-            page={activePage}
-            pages={livePages}
-            breadcrumb={breadcrumb}
-            onChangePage={(partial) => patchActive(partial)}
-            onChangeBlocks={(blocks) => patchActive({ blocks })}
-            onSelectPage={openPage}
-            onCreateChild={createChildPage}
-            onDuplicatePage={duplicateActivePage}
-          />
+        <div className="editor-scroll pb-16 md:pb-0">
+          {workspace.mode === 'tasks' ? (
+            <TasksView
+              workspace={workspace}
+              pages={livePages}
+              onPatch={patchWorkspace}
+              onOpenPage={openPage}
+              focusTaskId={focusTaskId}
+              onFocusTaskConsumed={() => setFocusTaskId(null)}
+            />
+          ) : workspace.mode === 'today' ? (
+            <TodayView
+              workspace={workspace}
+              onOpenTasks={openTasksMode}
+              onOpenTask={(taskId) => {
+                const task = workspace.tasks.find((t) => t.id === taskId)
+                setWorkspace((prev) => ({
+                  ...prev,
+                  mode: 'tasks',
+                  activeTaskListId: task?.listId ?? prev.activeTaskListId,
+                }))
+                setFocusTaskId(taskId)
+              }}
+            />
+          ) : workspace.mode === 'activity' ? (
+            <ActivityView
+              workspace={workspace}
+              onOpenPage={openPage}
+              onOpenTask={(taskId) => {
+                const task = workspace.tasks.find((t) => t.id === taskId)
+                setWorkspace((prev) => ({
+                  ...prev,
+                  mode: 'tasks',
+                  activeTaskListId: task?.listId ?? prev.activeTaskListId,
+                }))
+                setFocusTaskId(taskId)
+              }}
+            />
+          ) : activePage ? (
+            <Editor
+              page={activePage}
+              pages={livePages}
+              breadcrumb={breadcrumb}
+              linkedTasks={tasksForPage(workspace, activePage.id)}
+              taskStatuses={workspace.taskStatuses}
+              authorName={workspace.displayName}
+              presencePeers={presenceList}
+              onChangePage={(partial) => patchActive(partial)}
+              onChangeBlocks={(blocks) => patchActive({ blocks })}
+              onSelectPage={openPage}
+              onCreateChild={createChildPage}
+              onDuplicatePage={duplicateActivePage}
+              onSoftDelete={() => softDeletePage(activePage.id)}
+              onPromoteToTask={(title) => promoteBlockToTask(title, activePage.id)}
+              onCreateLinkedTask={() => createLinkedTask(activePage.id)}
+              onUnlinkTask={unlinkTask}
+              onOpenTasks={openTasksMode}
+            />
+          ) : null}
         </div>
       </main>
+
+      <MobileBottomNav
+        mode={workspace.mode}
+        onSetMode={(mode) => patchWorkspace({ mode })}
+      />
 
       <CommandPalette
         open={paletteOpen}
         workspace={workspace}
         onClose={() => setPaletteOpen(false)}
         onSelect={openPage}
+        onSelectTask={(taskId) => {
+          const task = workspace.tasks.find((t) => t.id === taskId)
+          setWorkspace((prev) => ({
+            ...prev,
+            mode: 'tasks',
+            activeTaskListId: task?.listId ?? prev.activeTaskListId,
+          }))
+          setFocusTaskId(taskId)
+        }}
+        onCreateBlank={createRootPage}
+        onCreateFromTemplate={createFromTemplate}
       />
 
       <ShareModal
@@ -427,6 +916,23 @@ export default function App() {
         pageId={activePage.id}
         pageTitle={activePage.title}
         onClose={() => setShareOpen(false)}
+      />
+
+      <SettingsPanel
+        open={settingsOpen}
+        prefs={prefs}
+        taskStatuses={workspace.taskStatuses}
+        displayName={workspace.displayName}
+        profiles={profiles}
+        activeProfileId={activeProfileId}
+        onClose={() => setSettingsOpen(false)}
+        onChange={setPrefs}
+        onChangeStatuses={(taskStatuses) => patchWorkspace({ taskStatuses })}
+        onDisplayName={(name) => patchWorkspace({ displayName: name })}
+        onCreateProfile={handleCreateProfile}
+        onSwitchProfile={switchProfile}
+        onClickupPing={() => clickupPing(prefs.clickupToken)}
+        onClickupImport={handleClickupImport}
       />
     </div>
   )
