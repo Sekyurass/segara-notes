@@ -1,43 +1,121 @@
-import { useMemo, useState, type DragEvent } from 'react'
+import { useMemo, useState, type DragEvent, type ReactNode } from 'react'
 import {
+  CalendarDays,
+  CheckSquare,
   ChevronDown,
   ChevronRight,
+  FileText,
+  History,
+  Home,
+  MoreHorizontal,
   Moon,
   Plus,
   RotateCcw,
   Search,
+  Settings2,
   Sun,
   Trash2,
 } from 'lucide-react'
-import { activePages, buildPageTree, flattenTree, trashedPages } from '@/lib/pages'
-import type { Page } from '@/types'
+import {
+  activePages,
+  buildPageTree,
+  flattenTree,
+  trashedPages,
+  type PageDropMode,
+} from '@/lib/pages'
+import { foldersInSpace, listsInFolder } from '@/lib/tasks'
+import type { AppMode, Page, TaskFolder, TaskList, TaskSpace } from '@/types'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
+import { cn } from '@/lib/utils'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { cn } from '@/lib/utils'
 
 type Props = {
   pages: Page[]
   activePageId: string
   theme: 'light' | 'dark'
+  mode: AppMode
+  taskCount: number
+  taskLists?: TaskList[]
+  taskSpaces?: TaskSpace[]
+  taskFolders?: TaskFolder[]
+  activeTaskListId?: string
   mobileOpen: boolean
   onCloseMobile: () => void
   onSelect: (id: string) => void
+  onSetMode: (mode: AppMode) => void
+  onSelectTaskList?: (id: string) => void
+  onCreateTaskSpace?: () => void
+  onRenameTaskSpace?: (id: string) => void
+  onDeleteTaskSpace?: (id: string) => void
+  onCreateTaskFolder?: (spaceId: string) => void
+  onRenameTaskFolder?: (id: string) => void
+  onDeleteTaskFolder?: (id: string) => void
+  onCreateTaskList?: (folderId: string | null) => void
+  onRenameTaskList?: (id: string) => void
+  onDeleteTaskList?: (id: string) => void
+  onChangeTaskListIcon?: (id: string) => void
   onCreateRoot: () => void
-  onCreateChild: (parentId: string) => void
-  onSoftDelete: (id: string) => void
   onRestore: (id: string) => void
   onPurge: (id: string) => void
-  onToggleFavorite: (id: string) => void
-  onReorder: (fromId: string, toId: string) => void
+  onReorder: (fromId: string, toId: string, mode: PageDropMode) => void
   onToggleTheme: () => void
   onOpenSearch: () => void
+  onOpenSettings?: () => void
+}
+
+const RAIL: Array<{
+  mode: AppMode
+  label: string
+  icon: typeof Home
+}> = [
+  { mode: 'home', label: 'Beranda', icon: Home },
+  { mode: 'tasks', label: 'Tugas', icon: CheckSquare },
+  { mode: 'notes', label: 'Catatan', icon: FileText },
+  { mode: 'today', label: 'Hari ini', icon: CalendarDays },
+  { mode: 'activity', label: 'Aktivitas', icon: History },
+]
+
+function RailButton({
+  active,
+  label,
+  onClick,
+  children,
+}: {
+  active?: boolean
+  label: string
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'flex size-9 items-center justify-center rounded-lg transition-colors',
+        active
+          ? 'bg-primary text-primary-foreground shadow-sm'
+          : 'text-muted-foreground hover:bg-white/10 hover:text-foreground',
+      )}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  )
 }
 
 function SidebarBody(props: Props) {
@@ -45,16 +123,31 @@ function SidebarBody(props: Props) {
     pages,
     activePageId,
     theme,
+    mode,
+    taskLists = [],
+    taskSpaces = [],
+    taskFolders = [],
+    activeTaskListId,
     onSelect,
+    onSetMode,
+    onSelectTaskList,
+    onCreateTaskSpace,
+    onRenameTaskSpace,
+    onDeleteTaskSpace,
+    onCreateTaskFolder,
+    onRenameTaskFolder,
+    onDeleteTaskFolder,
+    onCreateTaskList,
+    onRenameTaskList,
+    onDeleteTaskList,
+    onChangeTaskListIcon,
     onCreateRoot,
-    onCreateChild,
-    onSoftDelete,
     onRestore,
     onPurge,
-    onToggleFavorite,
     onReorder,
     onToggleTheme,
     onOpenSearch,
+    onOpenSettings,
     onCloseMobile,
   } = props
 
@@ -63,8 +156,23 @@ function SidebarBody(props: Props) {
   const favorites = useMemo(() => live.filter((p) => p.favorite), [live])
   const trash = useMemo(() => trashedPages(pages), [pages])
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [taskCollapsed, setTaskCollapsed] = useState<Record<string, boolean>>({})
   const [showTrash, setShowTrash] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ id: string; mode: PageDropMode } | null>(null)
+
+  function toggleTaskNode(id: string) {
+    setTaskCollapsed((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  function modeFromEvent(e: DragEvent<HTMLElement>): PageDropMode {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const y = e.clientY - rect.top
+    const ratio = y / rect.height
+    if (ratio < 0.28) return 'before'
+    if (ratio > 0.72) return 'after'
+    return 'into'
+  }
 
   const visible = flat.filter((node) => {
     let parentId = node.parentId
@@ -86,190 +194,500 @@ function SidebarBody(props: Props) {
     setDragId(id)
   }
 
-  function onPageDrop(targetId: string) {
-    if (dragId && dragId !== targetId) onReorder(dragId, targetId)
+  function onPageDrop(targetId: string, mode: PageDropMode) {
+    if (dragId && dragId !== targetId) onReorder(dragId, targetId, mode)
     setDragId(null)
+    setDropTarget(null)
   }
 
+  const panelTitle =
+    mode === 'home'
+      ? 'Home'
+      : mode === 'tasks' || mode === 'today'
+        ? 'Spaces'
+        : mode === 'notes'
+          ? 'Catatan'
+          : 'Aktivitas'
+
+  const showTaskTree = mode === 'home' || mode === 'tasks' || mode === 'today'
+  const showNotesTree = mode === 'notes'
+
   return (
-    <div className="flex h-full flex-col gap-3 bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center justify-between gap-2 px-1 pt-1">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold tracking-tight">Segara Notes</div>
-          <div className="text-xs text-muted-foreground">Block editor</div>
+    <div className="flex h-full min-w-0 bg-sidebar text-sidebar-foreground">
+      {/* ClickUp-style icon rail */}
+      <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-[#12101a] py-2.5 dark:bg-black/40">
+        <span className="mb-1 flex size-8 items-center justify-center rounded-lg bg-primary text-[0.7rem] font-bold text-primary-foreground">
+          S
+        </span>
+        <div className="flex flex-1 flex-col items-center gap-1">
+          {RAIL.map(({ mode: m, label, icon: Icon }) => (
+            <RailButton
+              key={m}
+              label={label}
+              active={mode === m}
+              onClick={() => {
+                onSetMode(m)
+                onCloseMobile()
+              }}
+            >
+              <Icon className="size-4" strokeWidth={mode === m ? 2.25 : 1.75} />
+            </RailButton>
+          ))}
         </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
+        <RailButton label="Cari" onClick={onOpenSearch}>
+          <Search className="size-4" />
+        </RailButton>
+        <RailButton
+          label={theme === 'dark' ? 'Mode terang' : 'Mode gelap'}
           onClick={onToggleTheme}
-          aria-label="Ganti tema"
-          title="Tema"
         >
-          {theme === 'dark' ? <Sun /> : <Moon />}
-        </Button>
+          {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+        </RailButton>
+        {onOpenSettings && (
+          <RailButton label="Pengaturan" onClick={onOpenSettings}>
+            <Settings2 className="size-4" />
+          </RailButton>
+        )}
       </div>
 
-      <div className="flex gap-2">
-        <Button className="flex-1" size="sm" onClick={onCreateRoot}>
-          <Plus /> Halaman
-        </Button>
-        <Button variant="secondary" size="sm" onClick={onOpenSearch}>
-          <Search />
-        </Button>
-      </div>
+      {/* Secondary panel */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center gap-1 border-b border-sidebar-border/70 px-2.5 py-2">
+          <span className="min-w-0 flex-1 truncate px-1 text-[13px] font-semibold">
+            {panelTitle}
+          </span>
+          {showNotesTree && (
+            <button
+              type="button"
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              title="Halaman baru"
+              onClick={onCreateRoot}
+            >
+              <Plus className="size-3.5" />
+            </button>
+          )}
+          {showTaskTree && onCreateTaskSpace && (
+            <button
+              type="button"
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              title="Space baru"
+              onClick={onCreateTaskSpace}
+            >
+              <Plus className="size-3.5" />
+            </button>
+          )}
+        </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-4 pr-2 pb-4">
-          {favorites.length > 0 && (
-            <section>
-              <div className="mb-1 px-2 text-[0.7rem] font-semibold tracking-wider text-muted-foreground uppercase">
-                Favorit
-              </div>
-              <ul className="space-y-0.5">
-                {favorites.map((page) => (
-                  <li key={`fav-${page.id}`}>
+        <ScrollArea className="min-h-0 flex-1 px-1.5">
+          {showTaskTree && (
+            <div className="flex flex-col gap-1 pb-3 pt-1.5">
+              {mode === 'home' && (
+                <div className="mb-1 flex flex-col gap-0.5 px-0.5">
+                  {(
+                    [
+                      { mode: 'home' as const, label: 'Beranda', icon: Home },
+                      { mode: 'today' as const, label: 'Hari ini', icon: CalendarDays },
+                      { mode: 'tasks' as const, label: 'My Tasks', icon: CheckSquare },
+                    ] as const
+                  ).map(({ mode: m, label, icon: Icon }) => (
                     <button
+                      key={label}
                       type="button"
-                      onClick={() => select(page.id)}
                       className={cn(
-                        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent',
-                        page.id === activePageId && 'bg-sidebar-accent text-sidebar-accent-foreground',
+                        'flex h-8 items-center gap-2 rounded-md px-2 text-[13px] transition-colors',
+                        mode === m
+                          ? 'bg-primary/15 font-medium text-primary'
+                          : 'text-sidebar-foreground/90 hover:bg-sidebar-accent/70',
                       )}
+                      onClick={() => {
+                        onSetMode(m)
+                        onCloseMobile()
+                      }}
                     >
-                      <span>{page.icon}</span>
-                      <span className="truncate">{page.title || 'Tanpa judul'}</span>
+                      <Icon className="size-3.5 opacity-80" />
+                      {label}
                     </button>
-                  </li>
-                ))}
+                  ))}
+                </div>
+              )}
+
+              <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground/80">
+                Spaces
+              </div>
+              <ul className="flex flex-col gap-0.5">
+                {[...taskSpaces]
+                  .sort((a, b) => a.order - b.order)
+                  .map((space) => {
+                    const spaceOpen = !taskCollapsed[space.id]
+                    const folders = foldersInSpace(taskFolders, space.id)
+                    return (
+                      <li key={space.id}>
+                        <div className="group flex items-center gap-0.5 rounded-md px-1 hover:bg-sidebar-accent/50">
+                          <button
+                            type="button"
+                            className="flex size-5 shrink-0 items-center justify-center text-muted-foreground"
+                            onClick={() => toggleTaskNode(space.id)}
+                            aria-label={spaceOpen ? 'Ciutkan' : 'Bentangkan'}
+                          >
+                            {spaceOpen ? (
+                              <ChevronDown className="size-3.5" />
+                            ) : (
+                              <ChevronRight className="size-3.5" />
+                            )}
+                          </button>
+                          <span className="min-w-0 flex-1 truncate py-1 text-[12px] font-semibold">
+                            {space.name}
+                          </span>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                className="flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-sidebar-accent"
+                                aria-label="Menu space"
+                              >
+                                <MoreHorizontal className="size-3.5" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" className="min-w-36">
+                              {onCreateTaskFolder && (
+                                <DropdownMenuItem
+                                  onClick={() => onCreateTaskFolder(space.id)}
+                                >
+                                  Folder baru
+                                </DropdownMenuItem>
+                              )}
+                              {onRenameTaskSpace && (
+                                <DropdownMenuItem
+                                  onClick={() => onRenameTaskSpace(space.id)}
+                                >
+                                  Ganti nama
+                                </DropdownMenuItem>
+                              )}
+                              {onDeleteTaskSpace && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={() => onDeleteTaskSpace(space.id)}
+                                  >
+                                    Hapus space
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                        {spaceOpen && (
+                          <ul className="ml-2 border-l border-sidebar-border/60 pl-1">
+                            {folders.map((folder) => {
+                              const folderOpen = !taskCollapsed[folder.id]
+                              const lists = listsInFolder(taskLists, folder.id)
+                              return (
+                                <li key={folder.id}>
+                                  <div className="group flex items-center gap-0.5 rounded-md px-1 hover:bg-sidebar-accent/50">
+                                    <button
+                                      type="button"
+                                      className="flex size-5 shrink-0 items-center justify-center text-muted-foreground"
+                                      onClick={() => toggleTaskNode(folder.id)}
+                                    >
+                                      {folderOpen ? (
+                                        <ChevronDown className="size-3.5" />
+                                      ) : (
+                                        <ChevronRight className="size-3.5" />
+                                      )}
+                                    </button>
+                                    <span className="min-w-0 flex-1 truncate py-1 text-[12px] font-medium text-muted-foreground">
+                                      {folder.name}
+                                    </span>
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-sidebar-accent"
+                                        >
+                                          <MoreHorizontal className="size-3.5" />
+                                        </button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="start" className="min-w-36">
+                                        {onCreateTaskList && (
+                                          <DropdownMenuItem
+                                            onClick={() => onCreateTaskList(folder.id)}
+                                          >
+                                            List baru
+                                          </DropdownMenuItem>
+                                        )}
+                                        {onRenameTaskFolder && (
+                                          <DropdownMenuItem
+                                            onClick={() => onRenameTaskFolder(folder.id)}
+                                          >
+                                            Ganti nama
+                                          </DropdownMenuItem>
+                                        )}
+                                        {onDeleteTaskFolder && (
+                                          <>
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuItem
+                                              className="text-destructive"
+                                              onClick={() => onDeleteTaskFolder(folder.id)}
+                                            >
+                                              Hapus folder
+                                            </DropdownMenuItem>
+                                          </>
+                                        )}
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  </div>
+                                  {folderOpen && (
+                                    <ul>
+                                      {lists.map((l) => (
+                                        <li key={l.id}>
+                                          <div
+                                            className={cn(
+                                              'group flex w-full items-center gap-0.5 rounded-md pr-1',
+                                              l.id === activeTaskListId &&
+                                                (mode === 'tasks' || mode === 'home')
+                                                ? 'bg-primary/15 font-medium text-primary'
+                                                : 'text-sidebar-foreground/90 hover:bg-sidebar-accent/70',
+                                            )}
+                                          >
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                onSelectTaskList?.(l.id)
+                                                onCloseMobile()
+                                              }}
+                                              className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-[5px] text-left text-[13px]"
+                                            >
+                                              <span className="shrink-0 text-[13px] leading-none">
+                                                {l.icon}
+                                              </span>
+                                              <span className="truncate">{l.name}</span>
+                                            </button>
+                                            <DropdownMenu>
+                                              <DropdownMenuTrigger asChild>
+                                                <button
+                                                  type="button"
+                                                  className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-muted"
+                                                >
+                                                  <MoreHorizontal className="size-3.5" />
+                                                </button>
+                                              </DropdownMenuTrigger>
+                                              <DropdownMenuContent
+                                                align="end"
+                                                className="min-w-36"
+                                              >
+                                                {onRenameTaskList && (
+                                                  <DropdownMenuItem
+                                                    onClick={() => onRenameTaskList(l.id)}
+                                                  >
+                                                    Ganti nama
+                                                  </DropdownMenuItem>
+                                                )}
+                                                {onChangeTaskListIcon && (
+                                                  <DropdownMenuItem
+                                                    onClick={() => onChangeTaskListIcon(l.id)}
+                                                  >
+                                                    Ganti ikon
+                                                  </DropdownMenuItem>
+                                                )}
+                                                {onDeleteTaskList && (
+                                                  <>
+                                                    <DropdownMenuSeparator />
+                                                    <DropdownMenuItem
+                                                      className="text-destructive"
+                                                      onClick={() => onDeleteTaskList(l.id)}
+                                                    >
+                                                      Hapus list
+                                                    </DropdownMenuItem>
+                                                  </>
+                                                )}
+                                              </DropdownMenuContent>
+                                            </DropdownMenu>
+                                          </div>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        )}
+                      </li>
+                    )
+                  })}
               </ul>
-            </section>
+            </div>
           )}
 
-          <section>
-            <div className="mb-1 px-2 text-[0.7rem] font-semibold tracking-wider text-muted-foreground uppercase">
-              Halaman
-            </div>
-            <ul className="space-y-0.5">
-              {visible.map((page) => {
-                const hasChildren = live.some((p) => p.parentId === page.id)
-                const isCollapsed = Boolean(collapsed[page.id])
-                return (
-                  <li
-                    key={page.id}
-                    className={cn(
-                      'group flex items-center gap-0.5 rounded-md',
-                      page.id === activePageId && 'bg-sidebar-accent',
-                      dragId === page.id && 'opacity-50',
-                    )}
-                    style={{ paddingLeft: `${page.depth * 12}px` }}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault()
-                      onPageDrop(page.id)
-                    }}
-                  >
-                    {hasChildren ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        className="text-muted-foreground"
-                        onClick={() =>
-                          setCollapsed((prev) => ({ ...prev, [page.id]: !prev[page.id] }))
-                        }
-                      >
-                        {isCollapsed ? <ChevronRight /> : <ChevronDown />}
-                      </Button>
-                    ) : (
-                      <span className="size-6" />
-                    )}
-
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-sm hover:bg-sidebar-accent/70"
-                      draggable
-                      onDragStart={(e) => onPageDragStart(e, page.id)}
-                      onDragEnd={() => setDragId(null)}
-                      onClick={() => select(page.id)}
-                    >
-                      <span className="shrink-0">{page.icon}</span>
-                      <span className="truncate">{page.title || 'Tanpa judul'}</span>
-                    </button>
-
-                    <div className="flex opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => onToggleFavorite(page.id)}
-                        aria-label="Favorit"
-                      >
-                        {page.favorite ? '★' : '☆'}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => onCreateChild(page.id)}
-                        aria-label="Sub-halaman"
-                      >
-                        <Plus />
-                      </Button>
-                      {live.length > 1 && (
-                        <Button
+          {showNotesTree && (
+            <div className="flex flex-col gap-3 pb-3 pt-1.5">
+              {favorites.length > 0 && (
+                <section>
+                  <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground/80">
+                    Favorit
+                  </div>
+                  <ul>
+                    {favorites.map((page) => (
+                      <li key={`fav-${page.id}`}>
+                        <button
                           type="button"
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={() => onSoftDelete(page.id)}
-                          aria-label="Trash"
+                          onClick={() => select(page.id)}
+                          className={cn(
+                            'flex w-full items-center gap-1.5 rounded-md px-2 py-[5px] text-left text-[13px] transition-colors',
+                            page.id === activePageId
+                              ? 'bg-primary/15 font-medium text-primary'
+                              : 'text-sidebar-foreground/90 hover:bg-sidebar-accent/70',
+                          )}
                         >
+                          <span className="shrink-0 text-[13px] leading-none opacity-90">
+                            {page.icon}
+                          </span>
+                          <span className="truncate">{page.title || 'Tanpa judul'}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              <section>
+                <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground/80">
+                  Halaman
+                </div>
+                <ul>
+                  {visible.map((page) => {
+                    const hasChildren = live.some((p) => p.parentId === page.id)
+                    const isCollapsed = Boolean(collapsed[page.id])
+                    return (
+                      <li
+                        key={page.id}
+                        className={cn(
+                          'group relative flex min-w-0 items-center rounded-md',
+                          page.id === activePageId && 'bg-primary/15',
+                          dragId === page.id && 'opacity-40',
+                          dropTarget?.id === page.id &&
+                            dropTarget.mode === 'into' &&
+                            'ring-1 ring-inset ring-primary/50',
+                        )}
+                        style={{ paddingLeft: `${4 + page.depth * 12}px` }}
+                        onDragOver={(e) => {
+                          e.preventDefault()
+                          if (!dragId || dragId === page.id) return
+                          const dropMode = modeFromEvent(e)
+                          setDropTarget((prev) =>
+                            prev?.id === page.id && prev.mode === dropMode
+                              ? prev
+                              : { id: page.id, mode: dropMode },
+                          )
+                        }}
+                        onDragLeave={() => {
+                          setDropTarget((prev) => (prev?.id === page.id ? null : prev))
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          onPageDrop(page.id, modeFromEvent(e))
+                        }}
+                      >
+                        {dropTarget?.id === page.id && dropTarget.mode === 'before' && (
+                          <span className="pointer-events-none absolute inset-x-1 top-0 h-px bg-primary" />
+                        )}
+                        {dropTarget?.id === page.id && dropTarget.mode === 'after' && (
+                          <span className="pointer-events-none absolute inset-x-1 bottom-0 h-px bg-primary" />
+                        )}
+
+                        {hasChildren ? (
+                          <button
+                            type="button"
+                            className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
+                            onClick={() =>
+                              setCollapsed((prev) => ({
+                                ...prev,
+                                [page.id]: !prev[page.id],
+                              }))
+                            }
+                          >
+                            {isCollapsed ? (
+                              <ChevronRight className="size-3.5" />
+                            ) : (
+                              <ChevronDown className="size-3.5" />
+                            )}
+                          </button>
+                        ) : (
+                          <span className="w-1.5 shrink-0" />
+                        )}
+
+                        <button
+                          type="button"
+                          className={cn(
+                            'flex min-w-0 flex-1 items-center gap-1.5 py-[5px] pr-2 text-left text-[13px]',
+                            page.id === activePageId
+                              ? 'font-medium text-primary'
+                              : 'text-sidebar-foreground/90',
+                          )}
+                          draggable
+                          onDragStart={(e) => onPageDragStart(e, page.id)}
+                          onDragEnd={() => {
+                            setDragId(null)
+                            setDropTarget(null)
+                          }}
+                          onClick={() => select(page.id)}
+                        >
+                          <span className="shrink-0 text-[13px] leading-none opacity-90">
+                            {page.icon}
+                          </span>
+                          <span className="truncate">{page.title || 'Tanpa judul'}</span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+
+              <section>
+                <button
+                  type="button"
+                  className="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                  onClick={() => setShowTrash((v) => !v)}
+                >
+                  <Trash2 className="size-3.5" />
+                  Trash{trash.length ? ` (${trash.length})` : ''}
+                </button>
+                {showTrash && (
+                  <ul className="mt-0.5">
+                    {trash.length === 0 && (
+                      <li className="px-2 py-1 text-[11px] text-muted-foreground">Kosong</li>
+                    )}
+                    {trash.map((page) => (
+                      <li
+                        key={`trash-${page.id}`}
+                        className="flex items-center gap-0.5 rounded-md px-1"
+                      >
+                        <span className="min-w-0 flex-1 truncate px-1 text-[12px] text-muted-foreground">
+                          {page.icon} {page.title || 'Tanpa judul'}
+                        </span>
+                        <Button size="icon-xs" variant="ghost" onClick={() => onRestore(page.id)}>
+                          <RotateCcw />
+                        </Button>
+                        <Button size="icon-xs" variant="ghost" onClick={() => onPurge(page.id)}>
                           <Trash2 />
                         </Button>
-                      )}
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
-
-          <section>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start text-muted-foreground"
-              onClick={() => setShowTrash((v) => !v)}
-            >
-              <Trash2 /> Trash {trash.length > 0 ? `(${trash.length})` : ''}
-            </Button>
-            {showTrash && (
-              <ul className="mt-1 space-y-0.5">
-                {trash.length === 0 && (
-                  <li className="px-2 py-1 text-xs text-muted-foreground">Kosong</li>
+                      </li>
+                    ))}
+                  </ul>
                 )}
-                {trash.map((page) => (
-                  <li key={`trash-${page.id}`} className="flex items-center gap-1 rounded-md px-1">
-                    <span className="min-w-0 flex-1 truncate px-1 text-sm text-muted-foreground">
-                      {page.icon} {page.title || 'Tanpa judul'}
-                    </span>
-                    <Button size="icon-xs" variant="ghost" onClick={() => onRestore(page.id)}>
-                      <RotateCcw />
-                    </Button>
-                    <Button size="icon-xs" variant="ghost" onClick={() => onPurge(page.id)}>
-                      <Trash2 />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-      </ScrollArea>
+              </section>
+            </div>
+          )}
 
-      <Separator />
-      <p className="px-1 pb-1 text-[0.72rem] leading-relaxed text-muted-foreground">
-        / blok · @ mention · Ctrl+K cari
-      </p>
+          {mode === 'activity' && (
+            <div className="px-2 py-3 text-[12px] leading-relaxed text-muted-foreground">
+              Riwayat perubahan workspace. Pilih item di panel utama untuk membuka halaman atau
+              tugas terkait.
+            </div>
+          )}
+        </ScrollArea>
+      </div>
     </div>
   )
 }
@@ -277,12 +695,12 @@ function SidebarBody(props: Props) {
 export function Sidebar(props: Props) {
   return (
     <>
-      <aside className="hidden h-full border-r border-sidebar-border p-3 md:flex md:flex-col">
+      <aside className="hidden h-full md:flex md:flex-col">
         <SidebarBody {...props} />
       </aside>
 
       <Sheet open={props.mobileOpen} onOpenChange={(open) => !open && props.onCloseMobile()}>
-        <SheetContent side="left" className="w-[min(20rem,88vw)] p-3">
+        <SheetContent side="left" className="w-[min(19rem,92vw)] p-0">
           <SheetHeader className="sr-only">
             <SheetTitle>Navigasi</SheetTitle>
           </SheetHeader>

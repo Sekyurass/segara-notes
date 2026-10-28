@@ -34,48 +34,48 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
-/* Segara brand — teal paper, bukan purple default */
+/* Segara × ClickUp — charcoal + violet */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(0.97 0.01 85);
-  --foreground: oklch(0.22 0.02 55);
-  --card: oklch(0.99 0.005 90);
-  --card-foreground: oklch(0.22 0.02 55);
-  --popover: oklch(0.99 0.005 90);
-  --popover-foreground: oklch(0.22 0.02 55);
-  --primary: oklch(0.48 0.1 180);
-  --primary-foreground: oklch(0.98 0.01 180);
-  --secondary: oklch(0.94 0.015 85);
-  --secondary-foreground: oklch(0.28 0.02 55);
-  --muted: oklch(0.94 0.012 85);
-  --muted-foreground: oklch(0.5 0.02 60);
-  --accent: oklch(0.93 0.03 180);
-  --accent-foreground: oklch(0.32 0.06 180);
+  --radius: 0.5rem;
+  --background: oklch(0.985 0.005 280);
+  --foreground: oklch(0.22 0.02 280);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.02 280);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.02 280);
+  --primary: oklch(0.55 0.2 290);
+  --primary-foreground: oklch(0.99 0.01 290);
+  --secondary: oklch(0.95 0.01 280);
+  --secondary-foreground: oklch(0.28 0.02 280);
+  --muted: oklch(0.955 0.008 280);
+  --muted-foreground: oklch(0.5 0.02 280);
+  --accent: oklch(0.94 0.03 290);
+  --accent-foreground: oklch(0.35 0.12 290);
   --destructive: oklch(0.55 0.2 25);
-  --border: oklch(0.88 0.02 80);
-  --input: oklch(0.88 0.02 80);
-  --ring: oklch(0.55 0.1 180);
-  --sidebar: oklch(0.975 0.005 90);
-  --sidebar-foreground: oklch(0.28 0.02 55);
-  --sidebar-primary: oklch(0.48 0.1 180);
-  --sidebar-primary-foreground: oklch(0.98 0.01 180);
-  --sidebar-accent: oklch(0.94 0.01 85);
-  --sidebar-accent-foreground: oklch(0.22 0.02 55);
-  --sidebar-border: oklch(0.9 0.015 80);
-  --sidebar-ring: oklch(0.55 0.1 180);
+  --border: oklch(0.9 0.01 280);
+  --input: oklch(0.9 0.01 280);
+  --ring: oklch(0.58 0.18 290);
+  --sidebar: oklch(0.97 0.008 280);
+  --sidebar-foreground: oklch(0.3 0.02 280);
+  --sidebar-primary: oklch(0.55 0.2 290);
+  --sidebar-primary-foreground: oklch(0.99 0.01 290);
+  --sidebar-accent: oklch(0.94 0.02 290);
+  --sidebar-accent-foreground: oklch(0.28 0.04 290);
+  --sidebar-border: oklch(0.9 0.01 280);
+  --sidebar-ring: oklch(0.58 0.18 290);
   --editor-max: 48rem;
   --editor-gutter: 2.5rem;
   --font-scale: 1;
   --page-pad-x: 0.875rem;
-  --page-pad-x-lg: 2rem;
-  --page-pad-y: 1rem;
+  --page-pad-x-lg: 1.5rem;
+  --page-pad-y: 0.75rem;
   --scrollbar-size: 8px;
-  --scrollbar-thumb: oklch(0.55 0.04 180 / 35%);
-  --scrollbar-thumb-hover: oklch(0.48 0.08 180 / 55%);
+  --scrollbar-thumb: oklch(0.55 0.08 290 / 30%);
+  --scrollbar-thumb-hover: oklch(0.5 0.16 290 / 50%);
 }
 
 html[data-density='compact'] {
@@ -97,34 +97,34 @@ html[data-density='compact'] .block-input {
 }
 
 .dark {
-  --background: oklch(0.18 0.015 55);
-  --foreground: oklch(0.95 0.01 85);
-  --card: oklch(0.22 0.015 55);
-  --card-foreground: oklch(0.95 0.01 85);
-  --popover: oklch(0.22 0.015 55);
-  --popover-foreground: oklch(0.95 0.01 85);
-  --primary: oklch(0.75 0.1 180);
-  --primary-foreground: oklch(0.2 0.04 180);
-  --secondary: oklch(0.28 0.015 55);
-  --secondary-foreground: oklch(0.95 0.01 85);
-  --muted: oklch(0.28 0.015 55);
-  --muted-foreground: oklch(0.7 0.02 70);
-  --accent: oklch(0.3 0.04 180);
-  --accent-foreground: oklch(0.9 0.04 180);
+  --background: oklch(0.16 0.012 280);
+  --foreground: oklch(0.96 0.01 280);
+  --card: oklch(0.19 0.012 280);
+  --card-foreground: oklch(0.96 0.01 280);
+  --popover: oklch(0.2 0.014 280);
+  --popover-foreground: oklch(0.96 0.01 280);
+  --primary: oklch(0.68 0.19 290);
+  --primary-foreground: oklch(0.99 0.01 290);
+  --secondary: oklch(0.24 0.012 280);
+  --secondary-foreground: oklch(0.95 0.01 280);
+  --muted: oklch(0.24 0.012 280);
+  --muted-foreground: oklch(0.68 0.02 280);
+  --accent: oklch(0.28 0.05 290);
+  --accent-foreground: oklch(0.92 0.04 290);
   --destructive: oklch(0.65 0.18 25);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.7 0.08 180);
-  --sidebar: oklch(0.16 0.01 55);
-  --sidebar-foreground: oklch(0.92 0.01 85);
-  --sidebar-primary: oklch(0.75 0.1 180);
-  --sidebar-primary-foreground: oklch(0.2 0.04 180);
-  --sidebar-accent: oklch(0.24 0.012 55);
-  --sidebar-accent-foreground: oklch(0.95 0.01 85);
-  --sidebar-border: oklch(1 0 0 / 12%);
-  --sidebar-ring: oklch(0.7 0.08 180);
-  --scrollbar-thumb: oklch(0.72 0.04 180 / 28%);
-  --scrollbar-thumb-hover: oklch(0.78 0.08 180 / 45%);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.68 0.17 290);
+  --sidebar: oklch(0.14 0.012 280);
+  --sidebar-foreground: oklch(0.9 0.01 280);
+  --sidebar-primary: oklch(0.68 0.19 290);
+  --sidebar-primary-foreground: oklch(0.99 0.01 290);
+  --sidebar-accent: oklch(0.22 0.03 290);
+  --sidebar-accent-foreground: oklch(0.95 0.02 290);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.68 0.17 290);
+  --scrollbar-thumb: oklch(0.7 0.08 290 / 28%);
+  --scrollbar-thumb-hover: oklch(0.75 0.14 290 / 45%);
 }
 
 @layer base {
@@ -149,7 +149,7 @@ html[data-density='compact'] .block-input {
     @apply font-sans;
   }
 
-  /* Scrollbar custom Segara — tipis, teal soft */
+  /* Scrollbar — tipis, violet soft */
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--scrollbar-thumb) transparent;
@@ -185,17 +185,22 @@ html[data-density='compact'] .block-input {
 /* Layout app Segara — gutter handle di luar sumbu teks */
 @layer components {
   .app-shell {
-    @apply grid h-svh max-h-svh grid-cols-1 overflow-hidden md:grid-cols-[15.25rem_1fr];
+    @apply grid h-svh max-h-svh grid-cols-1 overflow-hidden md:grid-cols-[17.75rem_1fr];
   }
 
   .app-shell > main {
-    @apply flex min-h-0 min-w-0 flex-col overflow-hidden;
+    @apply flex min-h-0 min-w-0 flex-col overflow-hidden bg-background;
   }
 
   .app-topbar {
-    @apply flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border/40;
+    @apply flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/50 bg-background/80 backdrop-blur-sm;
     padding-left: var(--page-pad-x);
     padding-right: var(--page-pad-x);
+  }
+
+  .view-scroll {
+    @apply min-h-0 flex-1 overflow-auto;
+    scrollbar-gutter: stable;
   }
 
   @media (min-width: 640px) {
@@ -264,9 +269,13 @@ html[data-density='compact'] .block-input {
     @apply min-w-0 grow basis-[calc(50%-0.25rem)] sm:grow-0 sm:basis-auto;
   }
 
-  /* List grid: mobile ringkas, desktop penuh */
+  /* List grid: mobile ringkas, desktop penuh — minmax(0,…) biar kolom tidak loncat */
   .tasks-grid {
-    grid-template-columns: minmax(11rem, 1fr) 5.5rem 5.5rem 1.75rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 5.5rem) minmax(0, 5.75rem) 1.75rem;
+  }
+
+  .tasks-grid > * {
+    min-width: 0;
   }
 
   .tasks-grid .tasks-col-assignee,
@@ -276,18 +285,21 @@ html[data-density='compact'] .block-input {
 
   @media (min-width: 768px) {
     .tasks-grid {
-      grid-template-columns: minmax(14rem, 1.5fr) 5.5rem 7.5rem 5.25rem 6.75rem 1.75rem;
+      grid-template-columns:
+        minmax(0, 1.5fr) 5.5rem minmax(0, 7.5rem) 5.25rem minmax(0, 6.75rem) 1.75rem;
     }
 
     .tasks-grid .tasks-col-assignee,
     .tasks-grid .tasks-col-priority {
       display: block;
+      min-width: 0;
     }
   }
 
   @media (min-width: 1024px) {
     .tasks-grid {
-      grid-template-columns: minmax(15rem, 1.5fr) 5.5rem 7.5rem 5.25rem 6.75rem 1.75rem;
+      grid-template-columns:
+        minmax(0, 1.5fr) 5.5rem minmax(0, 7.5rem) 5.25rem minmax(0, 6.75rem) 1.75rem;
     }
   }
 
@@ -296,6 +308,18 @@ html[data-density='compact'] .block-input {
     line-height: 1.65;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+
+  .block-rich-preview {
+    @apply min-w-0;
+  }
+
+  .block-rich-preview strong {
+    @apply font-semibold;
+  }
+
+  .block-rich-preview em {
+    @apply italic;
   }
 
   .block-input[data-type='heading1'] {
@@ -362,7 +386,28 @@ html[data-density='compact'] .block-input {
   }
 
   .block-body {
-    @apply flex min-w-0 w-full items-start gap-2;
+    @apply flex min-w-0 w-full items-start gap-0;
+  }
+
+  .block-mark {
+    @apply flex w-7 shrink-0 select-none items-start justify-center text-muted-foreground;
+    padding-top: 0.5rem;
+    line-height: 1.65;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .block-mark-num {
+    @apply text-[13px] tabular-nums;
+  }
+
+  .block-mark .todo-check {
+    @apply size-3.5 shrink-0 accent-primary;
+    margin-top: 0.2rem;
+  }
+
+  .block-mark .toggle-twist {
+    @apply flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground;
+    margin-top: -0.1rem;
   }
 
   .block-main {
@@ -374,7 +419,20 @@ html[data-density='compact'] .block-input {
   }
 
   .callout {
-    @apply rounded-lg bg-accent/70 py-1 pr-2;
+    @apply relative rounded-lg bg-accent/70 py-1 pr-2 pl-1;
+  }
+
+  .callout .block-mark {
+    padding-top: 0.45rem;
+  }
+
+  .callout-tones {
+    @apply absolute top-1 right-1 z-10 flex gap-1 rounded-md bg-background/80 p-0.5 opacity-0 shadow-sm backdrop-blur-sm transition-opacity;
+  }
+
+  .callout:hover .callout-tones,
+  .callout:focus-within .callout-tones {
+    @apply opacity-100;
   }
 
   .callout-warn {
@@ -387,17 +445,6 @@ html[data-density='compact'] .block-input {
 
   .block-image {
     @apply mb-2 max-w-full rounded-lg;
-  }
-
-  .bullet-mark,
-  .todo-check,
-  .toggle-twist,
-  .callout-mark {
-    @apply mt-1.5 shrink-0 text-muted-foreground;
-  }
-
-  .todo-check {
-    @apply mt-2 size-4;
   }
 
   .toggle-collapsed-label {

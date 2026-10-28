@@ -110,6 +110,8 @@ export type TaskList = {
   name: string
   icon: string
   order: number
+  /** null = list tanpa folder (unfiled di space) */
+  folderId: string | null
 }
 
 export type TaskSpace = {
@@ -194,7 +196,7 @@ export type TaskDropMode = 'before' | 'after' | 'into'
 export type TaskSort = 'order' | 'due' | 'priority' | 'title'
 export type TaskDueFilter = 'all' | 'today' | 'overdue' | 'upcoming' | 'none'
 
-export type AppMode = 'notes' | 'tasks' | 'today' | 'activity'
+export type AppMode = 'home' | 'notes' | 'tasks' | 'today' | 'activity'
 export type TaskView = 'list' | 'board' | 'calendar'
 
 export type Workspace = {

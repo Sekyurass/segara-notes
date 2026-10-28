@@ -7,7 +7,8 @@ import {
 } from 'react'
 import { BLOCK_GLYPH, clampIndent, filterSlashItems } from '../lib/blocks'
 import { createDefaultDatabase } from '../lib/database'
-import { wrapLink, wrapSelection } from '../lib/format'
+import { askConfirm, askPrompt } from '@/lib/appDialog'
+import { parseInlineMarkdown, wrapLink, wrapSelection } from '../lib/format'
 import { formatMention, resolveMentionPage, splitMentions } from '../lib/mentions'
 import type { Block, BlockType, CalloutTone, Page } from '../types'
 import { LocalImage } from './LocalImage'
@@ -69,6 +70,7 @@ export function BlockRow({
   const [slashQuery, setSlashQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const [showFormat, setShowFormat] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [mentionOpen, setMentionOpen] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
@@ -90,8 +92,18 @@ export function BlockRow({
   }, [block.text, block.type])
 
   useEffect(() => {
-    if (autoFocus) ref.current?.focus()
+    if (autoFocus) {
+      setEditing(true)
+      ref.current?.focus()
+    }
   }, [autoFocus])
+
+  const showRichPreview =
+    !editing &&
+    block.type !== 'code' &&
+    block.type !== 'database' &&
+    Boolean(block.text) &&
+    /(\*\*|\*[^*]|`|\[.+\]\(|\[\[)/.test(block.text)
 
   useEffect(() => {
     setActiveIndex(0)
@@ -128,14 +140,22 @@ export function BlockRow({
   function applySlash(type: BlockType) {
     if (type === 'image') {
       void (async () => {
-        const useFile = window.confirm('Unggah file lokal?\nOK = file · Cancel = URL')
+        const useFile = await askConfirm('Sumber gambar', {
+          description: 'Unggah file lokal, atau batalkan untuk memakai URL.',
+          confirmLabel: 'Unggah file',
+          cancelLabel: 'Pakai URL',
+        })
         let imageUrl = ''
         if (useFile) {
           const { pickLocalFile, storeLocalFile } = await import('@/lib/media')
           const file = await pickLocalFile('image/*')
           if (file) imageUrl = await storeLocalFile(file)
         } else {
-          imageUrl = window.prompt('URL gambar', block.imageUrl || 'https://')?.trim() || ''
+          imageUrl =
+            (await askPrompt('URL gambar', block.imageUrl || 'https://', {
+              placeholder: 'https://…',
+              confirmLabel: 'Pasang',
+            })) ?? ''
         }
         onChange({
           type,
@@ -149,20 +169,30 @@ export function BlockRow({
         })
       })()
     } else if (type === 'embed' || type === 'bookmark') {
-      const url = window.prompt(
-        type === 'embed' ? 'URL embed (YouTube, Figma, situs…)' : 'URL bookmark',
-        block.embedUrl || 'https://',
-      )
-      onChange({
-        type,
-        text: type === 'bookmark' ? url?.trim() || '' : '',
-        embedUrl: url?.trim() || '',
-        imageUrl: undefined,
-        database: undefined,
-        checked: undefined,
-        calloutTone: undefined,
-        collapsed: undefined,
-      })
+      void (async () => {
+        const url = await askPrompt(
+          type === 'embed' ? 'URL embed' : 'URL bookmark',
+          block.embedUrl || 'https://',
+          {
+            description:
+              type === 'embed'
+                ? 'YouTube, Figma, atau situs lain.'
+                : 'Tautan yang akan ditampilkan sebagai kartu.',
+            placeholder: 'https://…',
+            confirmLabel: 'Pasang',
+          },
+        )
+        onChange({
+          type,
+          text: type === 'bookmark' ? url || '' : '',
+          embedUrl: url || '',
+          imageUrl: undefined,
+          database: undefined,
+          checked: undefined,
+          calloutTone: undefined,
+          collapsed: undefined,
+        })
+      })()
     } else if (type === 'database') {
       onTurnInto(type)
     } else {
@@ -210,13 +240,20 @@ export function BlockRow({
   function applyLink() {
     const el = ref.current
     if (!el) return
-    const url = window.prompt('URL tautan', 'https://')
-    if (!url) return
-    const result = wrapLink(block.text, el.selectionStart, el.selectionEnd, url.trim())
-    onChange({ text: result.value })
-    requestAnimationFrame(() => {
-      el.focus()
-      el.setSelectionRange(result.start, result.end)
+    const start = el.selectionStart
+    const end = el.selectionEnd
+    void askPrompt('URL tautan', 'https://', {
+      placeholder: 'https://…',
+      confirmLabel: 'Pasang',
+    }).then((url) => {
+      if (!url) return
+      const result = wrapLink(block.text, start, end, url)
+      onChange({ text: result.value })
+      requestAnimationFrame(() => {
+        el.focus()
+        el.setSelectionRange(result.start, result.end)
+        autoResize(el)
+      })
     })
   }
 
@@ -391,10 +428,18 @@ export function BlockRow({
     )
   }
 
+  const showMark =
+    block.type === 'bullet' ||
+    block.type === 'numbered' ||
+    block.type === 'todo' ||
+    block.type === 'toggle' ||
+    block.type === 'callout' ||
+    block.type === 'comment'
+
   return (
     <div
       className={[
-        'block-row',
+        'block-row group/block',
         block.type === 'todo' && block.checked ? 'todo-done' : '',
         block.type === 'callout'
           ? `callout callout-${block.calloutTone ?? 'info'}`
@@ -472,33 +517,37 @@ export function BlockRow({
       </div>
 
       <div className="block-body" style={{ paddingLeft: indent * 24 }}>
-        {block.type === 'bullet' && <span className="bullet-mark">•</span>}
-        {block.type === 'numbered' && <span className="bullet-mark">{numberLabel}.</span>}
-        {block.type === 'todo' && (
-          <input
-            className="todo-check"
-            type="checkbox"
-            checked={Boolean(block.checked)}
-            onChange={() => onChange({ checked: !block.checked })}
-            aria-label="Centang to-do"
-          />
+        {showMark && (
+          <div className="block-mark" aria-hidden={block.type !== 'todo' && block.type !== 'toggle'}>
+            {block.type === 'bullet' && <span>•</span>}
+            {block.type === 'numbered' && <span className="block-mark-num">{numberLabel}.</span>}
+            {block.type === 'todo' && (
+              <input
+                className="todo-check"
+                type="checkbox"
+                checked={Boolean(block.checked)}
+                onChange={() => onChange({ checked: !block.checked })}
+                aria-label="Centang to-do"
+              />
+            )}
+            {block.type === 'toggle' && (
+              <button
+                type="button"
+                className="toggle-twist"
+                aria-label={block.collapsed ? 'Bentangkan' : 'Ciutkan'}
+                onClick={() => onChange({ collapsed: !block.collapsed })}
+              >
+                {block.collapsed ? '▸' : '▾'}
+              </button>
+            )}
+            {block.type === 'callout' && <span>💡</span>}
+            {block.type === 'comment' && <span>💬</span>}
+          </div>
         )}
-        {block.type === 'toggle' && (
-          <button
-            type="button"
-            className="toggle-twist"
-            aria-label={block.collapsed ? 'Bentangkan' : 'Ciutkan'}
-            onClick={() => onChange({ collapsed: !block.collapsed })}
-          >
-            {block.collapsed ? '▸' : '▾'}
-          </button>
-        )}
-        {block.type === 'callout' && <span className="callout-mark">💡</span>}
-        {block.type === 'comment' && <span className="callout-mark">💬</span>}
 
         <div className="block-main">
           {block.type === 'callout' && (
-            <div className="mb-1 flex gap-1">
+            <div className="callout-tones">
               {(['info', 'warn', 'success'] as CalloutTone[]).map((tone) => (
                 <button
                   key={tone}
@@ -545,59 +594,144 @@ export function BlockRow({
           ) : null}
 
           {!(block.type === 'toggle' && block.collapsed) && (
-            <textarea
-              ref={ref}
-              className="block-input"
-              data-type={block.type}
-              rows={1}
-              value={block.text}
-              placeholder={
-                block.type === 'heading1'
-                  ? 'Heading 1'
-                  : block.type === 'heading2'
-                    ? 'Heading 2'
-                    : block.type === 'heading3'
-                      ? 'Heading 3'
-                      : block.type === 'code'
-                        ? 'Kode…'
-                        : block.type === 'quote'
-                          ? 'Kutipan…'
-                          : block.type === 'callout'
-                            ? 'Callout…'
-                            : block.type === 'comment'
-                              ? 'Komentar…'
-                              : block.type === 'image'
-                                ? 'Caption…'
-                                : block.type === 'embed'
-                                  ? 'Catatan embed…'
-                                  : block.type === 'bookmark'
-                                    ? 'Judul bookmark…'
-                                    : block.type === 'toggle'
-                                      ? 'Judul toggle…'
-                                      : 'Ketik / untuk perintah, @ untuk halaman'
-              }
-              onChange={(e) => {
-                const value = e.target.value
-                onChange({ text: value })
-                syncMenus(value, e.target.selectionStart)
-                autoResize(e.target)
-              }}
-              onKeyDown={onKeyDown}
-              onSelect={(e) => {
-                const el = e.currentTarget
-                setShowFormat(el.selectionStart !== el.selectionEnd)
-                syncMenus(el.value, el.selectionStart)
-              }}
-              onBlur={() => {
-                window.setTimeout(() => {
-                  setShowFormat(false)
-                  setMenuOpen(false)
-                }, 150)
-              }}
-            />
+            <div className="relative min-w-0 flex-1">
+              {showRichPreview && (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="block-input block-rich-preview w-full cursor-text text-left"
+                  data-type={block.type}
+                  onClick={() => {
+                    setEditing(true)
+                    requestAnimationFrame(() => ref.current?.focus())
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setEditing(true)
+                      requestAnimationFrame(() => ref.current?.focus())
+                    }
+                  }}
+                >
+                  {splitMentions(block.text).map((mPart, mi) => {
+                    if (mPart.kind === 'mention') {
+                      const target = resolveMentionPage(pages, mPart)
+                      return (
+                        <button
+                          key={`m-${mi}`}
+                          type="button"
+                          className="mx-0.5 inline-flex items-center gap-1 rounded-md bg-accent px-1.5 py-0.5 align-baseline text-[0.92em] font-medium text-accent-foreground hover:opacity-90"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (target) onMentionPage(target)
+                          }}
+                          title={
+                            target ? `Buka ${target.title}` : 'Halaman tidak ditemukan'
+                          }
+                        >
+                          <span aria-hidden>{target?.icon ?? '📄'}</span>
+                          {mPart.label}
+                        </button>
+                      )
+                    }
+                    return (
+                      <span key={`t-${mi}`}>
+                        {parseInlineMarkdown(mPart.value).map((part, i) => {
+                          if (part.kind === 'bold') {
+                            return <strong key={i}>{part.text}</strong>
+                          }
+                          if (part.kind === 'italic') {
+                            return <em key={i}>{part.text}</em>
+                          }
+                          if (part.kind === 'code') {
+                            return (
+                              <code
+                                key={i}
+                                className="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em]"
+                              >
+                                {part.text}
+                              </code>
+                            )
+                          }
+                          if (part.kind === 'link') {
+                            return (
+                              <a
+                                key={i}
+                                href={part.href}
+                                className="text-primary underline underline-offset-2"
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {part.text}
+                              </a>
+                            )
+                          }
+                          return <span key={i}>{part.text}</span>
+                        })}
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+              <textarea
+                ref={ref}
+                className="block-input"
+                data-type={block.type}
+                rows={1}
+                value={block.text}
+                hidden={showRichPreview}
+                placeholder={
+                  block.type === 'heading1'
+                    ? 'Heading 1'
+                    : block.type === 'heading2'
+                      ? 'Heading 2'
+                      : block.type === 'heading3'
+                        ? 'Heading 3'
+                        : block.type === 'code'
+                          ? 'Kode…'
+                          : block.type === 'quote'
+                            ? 'Kutipan…'
+                            : block.type === 'callout'
+                              ? 'Callout…'
+                              : block.type === 'comment'
+                                ? 'Komentar…'
+                                : block.type === 'image'
+                                  ? 'Caption…'
+                                  : block.type === 'embed'
+                                    ? 'Catatan embed…'
+                                    : block.type === 'bookmark'
+                                      ? 'Judul bookmark…'
+                                      : block.type === 'toggle'
+                                        ? 'Judul toggle…'
+                                        : 'Ketik / untuk perintah, @ untuk halaman'
+                }
+                onFocus={() => setEditing(true)}
+                onChange={(e) => {
+                  const value = e.target.value
+                  onChange({ text: value })
+                  syncMenus(value, e.target.selectionStart)
+                  autoResize(e.target)
+                }}
+                onKeyDown={onKeyDown}
+                onSelect={(e) => {
+                  const el = e.currentTarget
+                  setShowFormat(el.selectionStart !== el.selectionEnd)
+                  syncMenus(el.value, el.selectionStart)
+                }}
+                onBlur={() => {
+                  window.setTimeout(() => {
+                    setShowFormat(false)
+                    setMenuOpen(false)
+                    setEditing(false)
+                  }, 150)
+                }}
+              />
+            </div>
           )}
 
-          {mentionParts.length > 0 && (
+          {/* Chip mention hanya saat edit — preview sudah render pill inline */}
+          {editing && mentionParts.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
               {mentionParts.map((part, i) => {
                 if (part.kind !== 'mention') return null

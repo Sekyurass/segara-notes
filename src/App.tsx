@@ -5,11 +5,13 @@ import {
   Lock,
   Menu,
   Redo2,
+  Search,
   Settings2,
   Share2,
   Undo2,
   Upload,
 } from 'lucide-react'
+import { AppDialogHost } from './components/AppDialogHost'
 import { Sidebar } from './components/Sidebar'
 import { Editor } from './components/Editor'
 import { CommandPalette } from './components/CommandPalette'
@@ -18,6 +20,7 @@ import { ShareModal } from './components/ShareModal'
 import { ShareView } from './components/ShareView'
 import { SettingsPanel } from './components/SettingsPanel'
 import { TasksView } from './components/TasksView'
+import { HomeView } from './components/HomeView'
 import { TodayView } from './components/TodayView'
 import { ActivityView } from './components/ActivityView'
 import { MobileBottomNav } from './components/MobileBottomNav'
@@ -92,7 +95,15 @@ import {
   loadWorkspace,
   saveWorkspace,
 } from './lib/storage'
-import { createTask, tasksForPage } from './lib/tasks'
+import { askAlert, askConfirm, askPrompt } from './lib/appDialog'
+import {
+  createTask,
+  createTaskFolder,
+  createTaskList,
+  createTaskSpace,
+  deleteTaskList,
+  tasksForPage,
+} from './lib/tasks'
 import type { Page, Workspace } from './types'
 
 type Theme = 'light' | 'dark'
@@ -166,6 +177,18 @@ export default function App() {
     () => (activePage ? getBreadcrumb(workspace.pages, activePage.id) : []),
     [workspace.pages, activePage],
   )
+
+  /** Setiap sesi browser baru: land di Beranda (bukan catatan pertama). */
+  useEffect(() => {
+    const key = 'segara:land-home'
+    try {
+      if (sessionStorage.getItem(key)) return
+      sessionStorage.setItem(key, '1')
+    } catch {
+      /* ignore */
+    }
+    setWorkspace((prev) => ({ ...prev, mode: 'home' }))
+  }, [])
 
   useEffect(() => {
     if (shareToken) return
@@ -655,6 +678,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <AppDialogHost />
       <Sidebar
         pages={workspace.pages}
         activePageId={activePage.id}
@@ -662,25 +686,190 @@ export default function App() {
         mode={workspace.mode}
         taskCount={workspace.tasks.filter((t) => !t.parentTaskId).length}
         taskLists={workspace.taskLists}
+        taskSpaces={workspace.taskSpaces}
+        taskFolders={workspace.taskFolders}
         activeTaskListId={workspace.activeTaskListId}
         mobileOpen={mobileNav}
         onCloseMobile={() => setMobileNav(false)}
         onSelect={openPage}
         onSetMode={(mode) => patchWorkspace({ mode })}
         onSelectTaskList={(id) => patchWorkspace({ activeTaskListId: id, mode: 'tasks' })}
-        onCreateTaskList={() => {
-          const name = window.prompt('Nama list baru', 'List')
-          if (!name?.trim()) return
-          const next = {
-            id: `list-${Date.now()}`,
-            name: name.trim(),
-            icon: '📋',
-            order: workspace.taskLists.length,
+        onCreateTaskSpace={async () => {
+          const name = await askPrompt('Nama space baru', 'Space', {
+            placeholder: 'Contoh: Product',
+            confirmLabel: 'Buat',
+          })
+          if (!name) return
+          const space = createTaskSpace(name, workspace.taskSpaces.length)
+          const folder = createTaskFolder(space.id, 'General', 0)
+          const list = createTaskList({
+            name: 'Inbox',
+            icon: '📥',
+            folderId: folder.id,
+            order: 0,
+          })
+          patchWorkspace({
+            taskSpaces: [...workspace.taskSpaces, space],
+            taskFolders: [...workspace.taskFolders, folder],
+            taskLists: [...workspace.taskLists, list],
+            activeTaskListId: list.id,
+            mode: 'tasks',
+          })
+        }}
+        onRenameTaskSpace={async (id) => {
+          const space = workspace.taskSpaces.find((s) => s.id === id)
+          if (!space) return
+          const name = await askPrompt('Ganti nama space', space.name, {
+            confirmLabel: 'Simpan',
+          })
+          if (!name) return
+          patchWorkspace({
+            taskSpaces: workspace.taskSpaces.map((s) =>
+              s.id === id ? { ...s, name } : s,
+            ),
+          })
+        }}
+        onDeleteTaskSpace={async (id) => {
+          if (workspace.taskSpaces.length <= 1) {
+            await askAlert('Tidak bisa dihapus', {
+              description: 'Minimal satu space harus tersisa.',
+            })
+            return
           }
+          const ok = await askConfirm('Hapus space?', {
+            description: 'Folder, list, dan tugas di dalamnya ikut terhapus.',
+            confirmLabel: 'Hapus',
+            destructive: true,
+          })
+          if (!ok) return
+          const folderIds = new Set(
+            workspace.taskFolders.filter((f) => f.spaceId === id).map((f) => f.id),
+          )
+          const listIds = new Set(
+            workspace.taskLists
+              .filter((l) => l.folderId && folderIds.has(l.folderId))
+              .map((l) => l.id),
+          )
+          const taskLists = workspace.taskLists.filter((l) => !listIds.has(l.id))
+          patchWorkspace({
+            taskSpaces: workspace.taskSpaces.filter((s) => s.id !== id),
+            taskFolders: workspace.taskFolders.filter((f) => f.spaceId !== id),
+            taskLists,
+            tasks: workspace.tasks.filter((t) => !listIds.has(t.listId)),
+            activeTaskListId: listIds.has(workspace.activeTaskListId)
+              ? (taskLists[0]?.id ?? '')
+              : workspace.activeTaskListId,
+          })
+        }}
+        onCreateTaskFolder={async (spaceId) => {
+          const name = await askPrompt('Nama folder baru', 'Folder', {
+            confirmLabel: 'Buat',
+          })
+          if (!name) return
+          const folder = createTaskFolder(
+            spaceId,
+            name,
+            workspace.taskFolders.filter((f) => f.spaceId === spaceId).length,
+          )
+          patchWorkspace({ taskFolders: [...workspace.taskFolders, folder] })
+        }}
+        onRenameTaskFolder={async (id) => {
+          const folder = workspace.taskFolders.find((f) => f.id === id)
+          if (!folder) return
+          const name = await askPrompt('Ganti nama folder', folder.name)
+          if (!name) return
+          patchWorkspace({
+            taskFolders: workspace.taskFolders.map((f) =>
+              f.id === id ? { ...f, name } : f,
+            ),
+          })
+        }}
+        onDeleteTaskFolder={async (id) => {
+          const foldersInSpace = workspace.taskFolders.filter(
+            (f) =>
+              f.spaceId === workspace.taskFolders.find((x) => x.id === id)?.spaceId,
+          )
+          if (foldersInSpace.length <= 1) {
+            await askAlert('Tidak bisa dihapus', {
+              description: 'Minimal satu folder per space.',
+            })
+            return
+          }
+          const ok = await askConfirm('Hapus folder?', {
+            description: 'List dan tugas di dalamnya ikut terhapus.',
+            confirmLabel: 'Hapus',
+            destructive: true,
+          })
+          if (!ok) return
+          const listIds = new Set(
+            workspace.taskLists.filter((l) => l.folderId === id).map((l) => l.id),
+          )
+          const taskLists = workspace.taskLists.filter((l) => l.folderId !== id)
+          patchWorkspace({
+            taskFolders: workspace.taskFolders.filter((f) => f.id !== id),
+            taskLists,
+            tasks: workspace.tasks.filter((t) => !listIds.has(t.listId)),
+            activeTaskListId: listIds.has(workspace.activeTaskListId)
+              ? (taskLists[0]?.id ?? '')
+              : workspace.activeTaskListId,
+          })
+        }}
+        onCreateTaskList={async (folderId) => {
+          const name = await askPrompt('Nama list baru', 'List', {
+            confirmLabel: 'Buat',
+          })
+          if (!name) return
+          const next = createTaskList({
+            name,
+            icon: '📋',
+            folderId,
+            order: workspace.taskLists.length,
+          })
           patchWorkspace({
             taskLists: [...workspace.taskLists, next],
             activeTaskListId: next.id,
-            mode: 'tasks' as const,
+            mode: 'tasks',
+          })
+        }}
+        onRenameTaskList={async (id) => {
+          const list = workspace.taskLists.find((l) => l.id === id)
+          if (!list) return
+          const name = await askPrompt('Ganti nama list', list.name)
+          if (!name) return
+          patchWorkspace({
+            taskLists: workspace.taskLists.map((l) =>
+              l.id === id ? { ...l, name } : l,
+            ),
+          })
+        }}
+        onDeleteTaskList={async (id) => {
+          if (workspace.taskLists.length <= 1) {
+            await askAlert('Tidak bisa dihapus', {
+              description: 'Minimal satu list harus tersisa.',
+            })
+            return
+          }
+          const ok = await askConfirm('Hapus list?', {
+            description: 'Semua tugas di list ini ikut terhapus.',
+            confirmLabel: 'Hapus',
+            destructive: true,
+          })
+          if (!ok) return
+          patchWorkspace(deleteTaskList(workspace, id))
+        }}
+        onChangeTaskListIcon={async (id) => {
+          const list = workspace.taskLists.find((l) => l.id === id)
+          if (!list) return
+          const icon = await askPrompt('Ikon list', list.icon, {
+            description: 'Masukkan satu emoji.',
+            placeholder: '📋',
+            confirmLabel: 'Simpan',
+          })
+          if (!icon) return
+          patchWorkspace({
+            taskLists: workspace.taskLists.map((l) =>
+              l.id === id ? { ...l, icon } : l,
+            ),
           })
         }}
         onCreateRoot={createRootPage}
@@ -699,7 +888,7 @@ export default function App() {
 
       <main className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-background">
         <div className="app-topbar">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <Button
               type="button"
               variant="ghost"
@@ -712,13 +901,14 @@ export default function App() {
             </Button>
             <button
               type="button"
-              className="hidden items-center gap-1.5 rounded-md px-1.5 py-1 text-[12px] text-muted-foreground hover:bg-muted sm:inline-flex"
+              className="hidden h-8 min-w-0 max-w-md flex-1 items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 text-left text-[12px] text-muted-foreground transition-colors hover:border-border hover:bg-muted/70 sm:inline-flex"
               onClick={() => setPaletteOpen(true)}
             >
-              <Kbd className="h-5">Ctrl+K</Kbd>
-              <span>Cari</span>
+              <Search className="size-3.5 shrink-0 opacity-70" />
+              <span className="min-w-0 flex-1 truncate">Search</span>
+              <Kbd className="h-5 shrink-0">Ctrl+K</Kbd>
             </button>
-            <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:ml-2">
               <span
                 className={cn(
                   'size-1.5 rounded-full',
@@ -731,10 +921,12 @@ export default function App() {
                         : 'bg-muted-foreground/50',
                 )}
               />
-              {syncLabel(syncStatus, liveConnected, livePeers)}
+              <span className="hidden sm:inline">
+                {syncLabel(syncStatus, liveConnected, livePeers)}
+              </span>
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-0.5">
+          <div className="flex shrink-0 flex-wrap items-center gap-0.5">
             <Button
               type="button"
               variant="ghost"
@@ -826,8 +1018,36 @@ export default function App() {
             />
           </div>
         </div>
-        <div className="editor-scroll pb-16 md:pb-0">
-          {workspace.mode === 'tasks' ? (
+        <div
+          className={cn(
+            workspace.mode === 'notes' ? 'editor-scroll' : 'view-scroll',
+            'pb-16 md:pb-0',
+          )}
+        >
+          {workspace.mode === 'home' ? (
+            <HomeView
+              workspace={workspace}
+              onPatch={patchWorkspace}
+              onOpenNotes={() => patchWorkspace({ mode: 'notes' })}
+              onOpenTasks={(listId) => {
+                patchWorkspace({
+                  mode: 'tasks',
+                  taskView: 'list',
+                  ...(listId ? { activeTaskListId: listId } : {}),
+                })
+              }}
+              onOpenTask={(taskId) => {
+                const task = workspace.tasks.find((t) => t.id === taskId)
+                setWorkspace((prev) => ({
+                  ...prev,
+                  mode: 'tasks',
+                  taskView: 'list',
+                  activeTaskListId: task?.listId ?? prev.activeTaskListId,
+                }))
+                setFocusTaskId(taskId)
+              }}
+            />
+          ) : workspace.mode === 'tasks' ? (
             <TasksView
               workspace={workspace}
               pages={livePages}
