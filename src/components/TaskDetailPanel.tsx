@@ -5,6 +5,7 @@ import {
   PRIORITY_META,
   RECUR_META,
   checklistProgress,
+  formatTimeSpent,
   isDoneStatus,
 } from '@/lib/tasks'
 import type {
@@ -184,6 +185,13 @@ export function TaskDetailPanel({
                 </DetailMenu>
               </Field>
 
+              <Field label="Start">
+                <DatePickerField
+                  value={task.startDate}
+                  onChange={(startDate) => onChange({ startDate })}
+                />
+              </Field>
+
               <Field label="Due">
                 <DatePickerField
                   value={task.dueDate}
@@ -196,6 +204,39 @@ export function TaskDetailPanel({
                   value={task.dueTime}
                   onChange={(dueTime) => onChange({ dueTime })}
                 />
+              </Field>
+
+              <Field label="Time">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="min-w-[3rem] text-xs font-medium tabular-nums">
+                    {formatTimeSpent(task.timeSpentMinutes ?? 0)}
+                  </span>
+                  {[15, 30, 60].map((m) => (
+                    <Button
+                      key={m}
+                      type="button"
+                      size="xs"
+                      variant="secondary"
+                      onClick={() =>
+                        onChange({
+                          timeSpentMinutes: (task.timeSpentMinutes ?? 0) + m,
+                        })
+                      }
+                    >
+                      +{m}m
+                    </Button>
+                  ))}
+                  {(task.timeSpentMinutes ?? 0) > 0 && (
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => onChange({ timeSpentMinutes: 0 })}
+                    >
+                      Reset
+                    </Button>
+                  )}
+                </div>
               </Field>
 
               <Field label="Berulang">

@@ -22,11 +22,12 @@ export function ShareModal({ pageId, pageTitle, open, onClose }: Props) {
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [canEdit, setCanEdit] = useState(false)
 
   async function create() {
     setBusy(true)
     setError('')
-    const token = await createShareLink(pageId)
+    const token = await createShareLink(pageId, canEdit)
     setBusy(false)
     if (!token) {
       setError('Gagal membuat link. Pastikan API (`npm run dev:api`) berjalan.')
@@ -42,6 +43,7 @@ export function ShareModal({ pageId, pageTitle, open, onClose }: Props) {
         if (!next) {
           setUrl('')
           setError('')
+          setCanEdit(false)
           onClose()
         }
       }}
@@ -50,15 +52,31 @@ export function ShareModal({ pageId, pageTitle, open, onClose }: Props) {
         <DialogHeader>
           <DialogTitle>Bagikan halaman</DialogTitle>
           <DialogDescription>
-            Link read-only untuk <strong>{pageTitle || 'Tanpa judul'}</strong>. Penerima bisa melihat
-            halaman tanpa mengedit workspace Anda.
+            Link untuk <strong>{pageTitle || 'Tanpa judul'}</strong>. Pilih izin baca saja atau boleh
+            edit.
           </DialogDescription>
         </DialogHeader>
 
         {!url ? (
-          <Button disabled={busy} onClick={() => void create()}>
-            {busy ? 'Membuat…' : 'Buat link share'}
-          </Button>
+          <div className="space-y-3">
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border px-3 py-2.5">
+              <input
+                type="checkbox"
+                className="mt-1 size-4 accent-primary"
+                checked={canEdit}
+                onChange={(e) => setCanEdit(e.target.checked)}
+              />
+              <span>
+                <span className="block text-sm font-medium">Izinkan edit</span>
+                <span className="text-xs text-muted-foreground">
+                  Penerima bisa mengubah judul dan isi halaman lewat link.
+                </span>
+              </span>
+            </label>
+            <Button disabled={busy} onClick={() => void create()}>
+              {busy ? 'Membuat…' : 'Buat link share'}
+            </Button>
+          </div>
         ) : (
           <div className="flex gap-2">
             <Input readOnly value={url} onFocus={(e) => e.target.select()} />

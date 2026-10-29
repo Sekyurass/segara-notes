@@ -21,7 +21,6 @@ import { ShareView } from './components/ShareView'
 import { SettingsPanel } from './components/SettingsPanel'
 import { TasksView } from './components/TasksView'
 import { HomeView } from './components/HomeView'
-import { TodayView } from './components/TodayView'
 import { ActivityView } from './components/ActivityView'
 import { MobileBottomNav } from './components/MobileBottomNav'
 import { Button } from '@/components/ui/button'
@@ -63,7 +62,14 @@ import {
   setActiveProfileId,
   type UserProfile,
 } from './lib/profiles'
-import { clickupFetchListTasks, clickupPing, mapClickUpPriority } from './lib/clickup'
+import {
+  clickupCreateTask,
+  clickupFetchListOptions,
+  clickupFetchListTasks,
+  clickupPing,
+  mapClickUpPriority,
+  toClickUpPriority,
+} from './lib/clickup'
 import {
   emptyHistory,
   pushHistory,
@@ -102,9 +108,10 @@ import {
   createTaskList,
   createTaskSpace,
   deleteTaskList,
+  isDoneStatus,
   tasksForPage,
 } from './lib/tasks'
-import type { Page, Workspace } from './types'
+import type { Page, TaskDueFilter, Workspace } from './types'
 
 type Theme = 'light' | 'dark'
 
@@ -152,6 +159,7 @@ export default function App() {
   const [prefs, setPrefs] = useState<AppPrefs>(() => loadPrefs())
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null)
+  const [focusDueFilter, setFocusDueFilter] = useState<TaskDueFilter | null>(null)
   const [liveConnected, setLiveConnected] = useState(false)
   const [livePeers, setLivePeers] = useState(0)
   const [presenceList, setPresenceList] = useState<PresencePeer[]>([])
@@ -454,11 +462,61 @@ export default function App() {
   }
 
   function patchWorkspace(partial: Partial<Workspace>) {
-    setWorkspace((prev) => ({
-      ...prev,
-      ...partial,
-      revision: (prev.revision ?? 0) + 1,
-    }))
+    setWorkspace((prev) => {
+      let next: Workspace = {
+        ...prev,
+        ...partial,
+        revision: (prev.revision ?? 0) + 1,
+      }
+      if (partial.tasks) {
+        const before = new Map(prev.tasks.map((t) => [t.id, t]))
+        const after = new Map(partial.tasks.map((t) => [t.id, t]))
+        for (const [id, task] of after) {
+          const old = before.get(id)
+          if (!old) {
+            next = pushActivity(next, {
+              kind: 'task',
+              summary: `Buat tugas · ${task.title || 'Tanpa judul'}`,
+              taskId: id,
+              pageId: task.pageId,
+            })
+          } else if (
+            old.statusId !== task.statusId &&
+            isDoneStatus(prev.taskStatuses, task.statusId) &&
+            !isDoneStatus(prev.taskStatuses, old.statusId)
+          ) {
+            next = pushActivity(next, {
+              kind: 'task',
+              summary: `Selesai · ${task.title || 'Tanpa judul'}`,
+              taskId: id,
+              pageId: task.pageId,
+            })
+          } else if (
+            old.statusId !== task.statusId &&
+            !isDoneStatus(prev.taskStatuses, task.statusId) &&
+            isDoneStatus(prev.taskStatuses, old.statusId)
+          ) {
+            next = pushActivity(next, {
+              kind: 'task',
+              summary: `Buka lagi · ${task.title || 'Tanpa judul'}`,
+              taskId: id,
+              pageId: task.pageId,
+            })
+          }
+        }
+        for (const [id, task] of before) {
+          if (!after.has(id)) {
+            next = pushActivity(next, {
+              kind: 'task',
+              summary: `Hapus tugas · ${task.title || 'Tanpa judul'}`,
+              taskId: id,
+              pageId: task.pageId,
+            })
+          }
+        }
+      }
+      return next
+    })
   }
 
   function switchProfile(id: string) {
@@ -473,25 +531,52 @@ export default function App() {
     window.location.reload()
   }
 
+  function resolveClickUpStatusId(clickUpStatus?: string): string | undefined {
+    const key = String(clickUpStatus ?? '')
+      .trim()
+      .toLowerCase()
+    if (key && prefs.clickupMap.statusByClickUp[key]) {
+      return prefs.clickupMap.statusByClickUp[key]
+    }
+    const byName = workspace.taskStatuses.find(
+      (s) => s.name.trim().toLowerCase() === key,
+    )
+    if (byName) return byName.id
+    return (
+      workspace.taskStatuses.find((s) => s.category === 'open')?.id ??
+      workspace.taskStatuses[0]?.id
+    )
+  }
+
+  function clickUpStatusNameForLocal(statusId: string): string | undefined {
+    const entry = Object.entries(prefs.clickupMap.statusByClickUp).find(
+      ([, id]) => id === statusId,
+    )
+    if (entry) return entry[0]
+    return workspace.taskStatuses.find((s) => s.id === statusId)?.name
+  }
+
   async function handleClickupImport(): Promise<number> {
     if (!prefs.clickupToken || !prefs.clickupListId) return -1
     try {
       const remoteTasks = await clickupFetchListTasks(prefs.clickupToken, prefs.clickupListId)
       const listId = workspace.activeTaskListId || workspace.taskLists[0]?.id
-      const statusId =
+      const fallbackStatus =
         workspace.taskStatuses.find((s) => s.category === 'open')?.id ??
         workspace.taskStatuses[0]?.id
-      if (!listId || !statusId) return -1
+      if (!listId || !fallbackStatus) return -1
+      const map = prefs.clickupMap
       const imported = remoteTasks.map((t) =>
         createTask({
           listId,
-          statusId,
+          statusId: resolveClickUpStatusId(t.status?.status) ?? fallbackStatus,
           title: t.name,
           description: t.description ?? '',
-          priority: mapClickUpPriority(t.priority),
-          dueDate: t.due_date
-            ? new Date(Number(t.due_date)).toISOString().slice(0, 10)
-            : null,
+          priority: map.priority ? mapClickUpPriority(t.priority) : 'none',
+          dueDate:
+            map.due && t.due_date
+              ? new Date(Number(t.due_date)).toISOString().slice(0, 10)
+              : null,
           tags: (t.tags ?? []).map((x) => x.name),
           assignee: t.assignees?.[0]?.username ?? null,
         }),
@@ -512,40 +597,76 @@ export default function App() {
     }
   }
 
-  function promoteBlockToTask(title: string, pageId: string) {
-    const listId = workspace.activeTaskListId || workspace.taskLists[0]?.id
-    const statusId =
-      workspace.taskStatuses.find((s) => s.category === 'open')?.id ?? workspace.taskStatuses[0]?.id
-    if (!listId || !statusId) return
-    setWorkspace((prev) => ({
-      ...prev,
-      mode: 'tasks',
-      tasks: [
-        createTask({ listId, statusId, title: title || 'Tugas dari catatan', pageId }),
-        ...prev.tasks,
-      ],
-    }))
+  async function handleClickupExport(): Promise<number> {
+    if (!prefs.clickupToken || !prefs.clickupListId) return -1
+    const listId = workspace.activeTaskListId
+    const toExport = workspace.tasks.filter(
+      (t) => !t.parentTaskId && t.listId === listId,
+    )
+    if (!toExport.length) return 0
+    const map = prefs.clickupMap
+    let ok = 0
+    try {
+      for (const t of toExport.slice(0, 40)) {
+        await clickupCreateTask(prefs.clickupToken, prefs.clickupListId, {
+          name: t.title || 'Tanpa judul',
+          description: t.description || undefined,
+          due_date:
+            map.due && t.dueDate
+              ? new Date(`${t.dueDate}T12:00:00`).getTime()
+              : null,
+          priority: map.priority ? toClickUpPriority(t.priority) : null,
+          tags: t.tags.length ? t.tags : undefined,
+          status: clickUpStatusNameForLocal(t.statusId),
+        })
+        ok += 1
+      }
+      setWorkspace((prev) =>
+        pushActivity(prev, {
+          kind: 'import',
+          summary: `Ekspor ${ok} task ke ClickUp`,
+        }),
+      )
+      return ok
+    } catch {
+      return ok > 0 ? ok : -1
+    }
   }
 
-  function createLinkedTask(pageId: string, title?: string) {
+  /** Promote & linked create: tetap di notes, tautkan pageId (satu perilaku). */
+  function createTaskFromPage(pageId: string, title?: string) {
     const listId = workspace.activeTaskListId || workspace.taskLists[0]?.id
     const statusId =
       workspace.taskStatuses.find((s) => s.category === 'open')?.id ?? workspace.taskStatuses[0]?.id
     if (!listId || !statusId) return
     const page = workspace.pages.find((p) => p.id === pageId)
-    setWorkspace((prev) => ({
-      ...prev,
-      tasks: [
-        createTask({
-          listId,
-          statusId,
-          title: title || page?.title || 'Tugas dari catatan',
+    const task = createTask({
+      listId,
+      statusId,
+      title: title || page?.title || 'Tugas dari catatan',
+      pageId,
+      priority: 'normal',
+    })
+    setWorkspace((prev) =>
+      pushActivity(
+        {
+          ...prev,
+          tasks: [task, ...prev.tasks],
+          revision: (prev.revision ?? 0) + 1,
+        },
+        {
+          kind: 'task',
+          summary: `Buat tugas · ${task.title}`,
+          taskId: task.id,
           pageId,
-          priority: 'normal',
-        }),
-        ...prev.tasks,
-      ],
-    }))
+        },
+      ),
+    )
+  }
+
+  function openTasksWithDue(due: TaskDueFilter = 'today') {
+    setFocusDueFilter(due)
+    setWorkspace((prev) => ({ ...prev, mode: 'tasks', taskView: 'list' }))
   }
 
   function unlinkTask(taskId: string) {
@@ -684,15 +805,20 @@ export default function App() {
         activePageId={activePage.id}
         theme={theme}
         mode={workspace.mode}
-        taskCount={workspace.tasks.filter((t) => !t.parentTaskId).length}
         taskLists={workspace.taskLists}
         taskSpaces={workspace.taskSpaces}
         taskFolders={workspace.taskFolders}
         activeTaskListId={workspace.activeTaskListId}
+        activitySummaries={(workspace.activity ?? []).map((e) => ({
+          id: e.id,
+          summary: e.summary,
+          at: e.at,
+        }))}
         mobileOpen={mobileNav}
         onCloseMobile={() => setMobileNav(false)}
         onSelect={openPage}
         onSetMode={(mode) => patchWorkspace({ mode })}
+        onOpenToday={() => openTasksWithDue('today')}
         onSelectTaskList={(id) => patchWorkspace({ activeTaskListId: id, mode: 'tasks' })}
         onCreateTaskSpace={async () => {
           const name = await askPrompt('Nama space baru', 'Space', {
@@ -957,15 +1083,17 @@ export default function App() {
             >
               <Redo2 />
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              title="Share"
-              onClick={() => setShareOpen(true)}
-            >
-              <Share2 />
-            </Button>
+            {workspace.mode === 'notes' && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                title="Share halaman"
+                onClick={() => setShareOpen(true)}
+              >
+                <Share2 />
+              </Button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="ghost" size="icon-xs">
@@ -985,9 +1113,11 @@ export default function App() {
                 >
                   <Lock /> {hasWorkspaceLock() ? 'Kunci workspace' : 'Atur PIN'}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => downloadMarkdown(activePage)}>
-                  <Download /> Export Markdown
-                </DropdownMenuItem>
+                {workspace.mode === 'notes' && (
+                  <DropdownMenuItem onClick={() => downloadMarkdown(activePage)}>
+                    <Download /> Export Markdown
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => exportWorkspaceJson(workspace)}>
                   <Download /> Backup JSON
                 </DropdownMenuItem>
@@ -1027,13 +1157,21 @@ export default function App() {
           {workspace.mode === 'home' ? (
             <HomeView
               workspace={workspace}
-              onPatch={patchWorkspace}
               onOpenNotes={() => patchWorkspace({ mode: 'notes' })}
-              onOpenTasks={(listId) => {
+              onOpenActivity={() => patchWorkspace({ mode: 'activity' })}
+              onOpenPage={openPage}
+              onOpenTasks={(opts) => {
+                if (opts?.due && opts.due !== 'all') {
+                  openTasksWithDue(opts.due)
+                  if (opts.listId) {
+                    patchWorkspace({ activeTaskListId: opts.listId })
+                  }
+                  return
+                }
                 patchWorkspace({
                   mode: 'tasks',
                   taskView: 'list',
-                  ...(listId ? { activeTaskListId: listId } : {}),
+                  ...(opts?.listId ? { activeTaskListId: opts.listId } : {}),
                 })
               }}
               onOpenTask={(taskId) => {
@@ -1055,20 +1193,8 @@ export default function App() {
               onOpenPage={openPage}
               focusTaskId={focusTaskId}
               onFocusTaskConsumed={() => setFocusTaskId(null)}
-            />
-          ) : workspace.mode === 'today' ? (
-            <TodayView
-              workspace={workspace}
-              onOpenTasks={openTasksMode}
-              onOpenTask={(taskId) => {
-                const task = workspace.tasks.find((t) => t.id === taskId)
-                setWorkspace((prev) => ({
-                  ...prev,
-                  mode: 'tasks',
-                  activeTaskListId: task?.listId ?? prev.activeTaskListId,
-                }))
-                setFocusTaskId(taskId)
-              }}
+              focusDueFilter={focusDueFilter}
+              onFocusDueConsumed={() => setFocusDueFilter(null)}
             />
           ) : workspace.mode === 'activity' ? (
             <ActivityView
@@ -1090,6 +1216,7 @@ export default function App() {
               pages={livePages}
               breadcrumb={breadcrumb}
               linkedTasks={tasksForPage(workspace, activePage.id)}
+              allTasks={workspace.tasks}
               taskStatuses={workspace.taskStatuses}
               authorName={workspace.displayName}
               presencePeers={presenceList}
@@ -1099,9 +1226,19 @@ export default function App() {
               onCreateChild={createChildPage}
               onDuplicatePage={duplicateActivePage}
               onSoftDelete={() => softDeletePage(activePage.id)}
-              onPromoteToTask={(title) => promoteBlockToTask(title, activePage.id)}
-              onCreateLinkedTask={() => createLinkedTask(activePage.id)}
+              onPromoteToTask={(title) => createTaskFromPage(activePage.id, title)}
+              onCreateLinkedTask={() => createTaskFromPage(activePage.id)}
               onUnlinkTask={unlinkTask}
+              onOpenTask={(taskId) => {
+                const task = workspace.tasks.find((t) => t.id === taskId)
+                setWorkspace((prev) => ({
+                  ...prev,
+                  mode: 'tasks',
+                  taskView: 'list',
+                  activeTaskListId: task?.listId ?? prev.activeTaskListId,
+                }))
+                setFocusTaskId(taskId)
+              }}
               onOpenTasks={openTasksMode}
             />
           ) : null}
@@ -1153,6 +1290,8 @@ export default function App() {
         onSwitchProfile={switchProfile}
         onClickupPing={() => clickupPing(prefs.clickupToken)}
         onClickupImport={handleClickupImport}
+        onClickupExport={handleClickupExport}
+        onClickupLoadLists={() => clickupFetchListOptions(prefs.clickupToken)}
       />
     </div>
   )

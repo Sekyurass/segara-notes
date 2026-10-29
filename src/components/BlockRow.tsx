@@ -10,8 +10,10 @@ import { createDefaultDatabase } from '../lib/database'
 import { askConfirm, askPrompt } from '@/lib/appDialog'
 import { parseInlineMarkdown, wrapLink, wrapSelection } from '../lib/format'
 import { formatMention, resolveMentionPage, splitMentions } from '../lib/mentions'
-import type { Block, BlockType, CalloutTone, Page } from '../types'
+import type { Block, BlockType, CalloutTone, Page, Task } from '../types'
+import { isClickUpTaskUrl } from '@/lib/clickup'
 import { LocalImage } from './LocalImage'
+import { ClickUpEmbedCard } from './ClickUpEmbedCard'
 import { DatabaseBlock } from './DatabaseBlock'
 import { FormatToolbar } from './FormatToolbar'
 import { SlashMenu } from './SlashMenu'
@@ -20,6 +22,7 @@ type Props = {
   block: Block
   numberLabel?: number
   pages: Page[]
+  tasks?: Task[]
   autoFocus?: boolean
   isDragging?: boolean
   isDragOver?: boolean
@@ -31,6 +34,7 @@ type Props = {
   onDelete: () => void
   onTurnInto: (type: BlockType) => void
   onMentionPage: (page: Page) => void
+  onOpenTask?: (taskId: string) => void
   onPromoteToTask?: (title: string) => void
   onDragStart: (id: string) => void
   onDragOver: (id: string) => void
@@ -48,6 +52,7 @@ export function BlockRow({
   block,
   numberLabel = 1,
   pages,
+  tasks = [],
   autoFocus,
   isDragging,
   isDragOver,
@@ -59,6 +64,7 @@ export function BlockRow({
   onDelete,
   onTurnInto,
   onMentionPage,
+  onOpenTask,
   onPromoteToTask,
   onDragStart,
   onDragOver,
@@ -367,9 +373,16 @@ export function BlockRow({
           <DatabaseBlock
             title={block.text || 'Database'}
             data={db}
+            pages={pages}
+            tasks={tasks}
             onChangeTitle={(text) => onChange({ text })}
             onChange={(database) => onChange({ database })}
             onDeleteBlock={onDelete}
+            onOpenPage={(id) => {
+              const page = pages.find((p) => p.id === id)
+              if (page) onMentionPage(page)
+            }}
+            onOpenTask={onOpenTask}
           />
         </div>
       </div>
@@ -570,15 +583,28 @@ export function BlockRow({
           ) : null}
 
           {block.type === 'embed' && block.embedUrl ? (
-            <div className="mb-2 overflow-hidden rounded-lg border border-border">
-              <iframe
-                title="Embed"
-                src={block.embedUrl}
-                className="aspect-video w-full bg-muted"
-                loading="lazy"
-                referrerPolicy="no-referrer"
+            isClickUpTaskUrl(block.embedUrl) ? (
+              <ClickUpEmbedCard
+                url={block.embedUrl}
+                onChangeUrl={(embedUrl) => onChange({ embedUrl })}
               />
-            </div>
+            ) : (
+              <div className="mb-2 overflow-hidden rounded-lg border border-border">
+                <iframe
+                  title="Embed"
+                  src={block.embedUrl}
+                  className="aspect-video w-full bg-muted"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            )
+          ) : null}
+          {block.type === 'embed' && !block.embedUrl ? (
+            <ClickUpEmbedCard
+              url=""
+              onChangeUrl={(embedUrl) => onChange({ embedUrl })}
+            />
           ) : null}
 
           {block.type === 'bookmark' && block.embedUrl ? (

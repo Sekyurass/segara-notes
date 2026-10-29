@@ -47,15 +47,16 @@ type Props = {
   activePageId: string
   theme: 'light' | 'dark'
   mode: AppMode
-  taskCount: number
   taskLists?: TaskList[]
   taskSpaces?: TaskSpace[]
   taskFolders?: TaskFolder[]
   activeTaskListId?: string
+  activitySummaries?: Array<{ id: string; summary: string; at: number }>
   mobileOpen: boolean
   onCloseMobile: () => void
   onSelect: (id: string) => void
   onSetMode: (mode: AppMode) => void
+  onOpenToday?: () => void
   onSelectTaskList?: (id: string) => void
   onCreateTaskSpace?: () => void
   onRenameTaskSpace?: (id: string) => void
@@ -84,7 +85,6 @@ const RAIL: Array<{
   { mode: 'home', label: 'Beranda', icon: Home },
   { mode: 'tasks', label: 'Tugas', icon: CheckSquare },
   { mode: 'notes', label: 'Catatan', icon: FileText },
-  { mode: 'today', label: 'Hari ini', icon: CalendarDays },
   { mode: 'activity', label: 'Aktivitas', icon: History },
 ]
 
@@ -128,8 +128,10 @@ function SidebarBody(props: Props) {
     taskSpaces = [],
     taskFolders = [],
     activeTaskListId,
+    activitySummaries = [],
     onSelect,
     onSetMode,
+    onOpenToday,
     onSelectTaskList,
     onCreateTaskSpace,
     onRenameTaskSpace,
@@ -202,20 +204,21 @@ function SidebarBody(props: Props) {
 
   const panelTitle =
     mode === 'home'
-      ? 'Home'
-      : mode === 'tasks' || mode === 'today'
+      ? 'Beranda'
+      : mode === 'tasks'
         ? 'Spaces'
         : mode === 'notes'
           ? 'Catatan'
           : 'Aktivitas'
 
-  const showTaskTree = mode === 'home' || mode === 'tasks' || mode === 'today'
+  const showTaskTree = mode === 'tasks'
   const showNotesTree = mode === 'notes'
+  const showHomePanel = mode === 'home'
 
   return (
     <div className="flex h-full min-w-0 bg-sidebar text-sidebar-foreground">
       {/* ClickUp-style icon rail */}
-      <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-[#12101a] py-2.5 dark:bg-black/40">
+      <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-black/20 py-2.5 dark:bg-black/50">
         <span className="mb-1 flex size-8 items-center justify-center rounded-lg bg-primary text-[0.7rem] font-bold text-primary-foreground">
           S
         </span>
@@ -233,6 +236,17 @@ function SidebarBody(props: Props) {
               <Icon className="size-4" strokeWidth={mode === m ? 2.25 : 1.75} />
             </RailButton>
           ))}
+          {onOpenToday && (
+            <RailButton
+              label="Hari ini"
+              onClick={() => {
+                onOpenToday()
+                onCloseMobile()
+              }}
+            >
+              <CalendarDays className="size-4" />
+            </RailButton>
+          )}
         </div>
         <RailButton label="Cari" onClick={onOpenSearch}>
           <Search className="size-4" />
@@ -279,38 +293,49 @@ function SidebarBody(props: Props) {
         </div>
 
         <ScrollArea className="min-h-0 flex-1 px-1.5">
+          {showHomePanel && (
+            <div className="flex flex-col gap-0.5 px-0.5 pb-3 pt-1.5">
+              <button
+                type="button"
+                className="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-sidebar-foreground/90 hover:bg-sidebar-accent/70"
+                onClick={() => {
+                  onOpenToday?.()
+                  onCloseMobile()
+                }}
+              >
+                <CalendarDays className="size-3.5 opacity-80" />
+                Hari ini
+              </button>
+              <button
+                type="button"
+                className="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-sidebar-foreground/90 hover:bg-sidebar-accent/70"
+                onClick={() => {
+                  onSetMode('tasks')
+                  onCloseMobile()
+                }}
+              >
+                <CheckSquare className="size-3.5 opacity-80" />
+                Semua tugas
+              </button>
+              <button
+                type="button"
+                className="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-sidebar-foreground/90 hover:bg-sidebar-accent/70"
+                onClick={() => {
+                  onSetMode('notes')
+                  onCloseMobile()
+                }}
+              >
+                <FileText className="size-3.5 opacity-80" />
+                Catatan
+              </button>
+              <p className="mt-2 px-2 text-[11px] leading-relaxed text-muted-foreground">
+                Ringkasan di panel utama. Hierarchy Space/List muncul saat mode Tugas.
+              </p>
+            </div>
+          )}
+
           {showTaskTree && (
             <div className="flex flex-col gap-1 pb-3 pt-1.5">
-              {mode === 'home' && (
-                <div className="mb-1 flex flex-col gap-0.5 px-0.5">
-                  {(
-                    [
-                      { mode: 'home' as const, label: 'Beranda', icon: Home },
-                      { mode: 'today' as const, label: 'Hari ini', icon: CalendarDays },
-                      { mode: 'tasks' as const, label: 'My Tasks', icon: CheckSquare },
-                    ] as const
-                  ).map(({ mode: m, label, icon: Icon }) => (
-                    <button
-                      key={label}
-                      type="button"
-                      className={cn(
-                        'flex h-8 items-center gap-2 rounded-md px-2 text-[13px] transition-colors',
-                        mode === m
-                          ? 'bg-primary/15 font-medium text-primary'
-                          : 'text-sidebar-foreground/90 hover:bg-sidebar-accent/70',
-                      )}
-                      onClick={() => {
-                        onSetMode(m)
-                        onCloseMobile()
-                      }}
-                    >
-                      <Icon className="size-3.5 opacity-80" />
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
-
               <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground/80">
                 Spaces
               </div>
@@ -445,7 +470,7 @@ function SidebarBody(props: Props) {
                                             className={cn(
                                               'group flex w-full items-center gap-0.5 rounded-md pr-1',
                                               l.id === activeTaskListId &&
-                                                (mode === 'tasks' || mode === 'home')
+                                                mode === 'tasks'
                                                 ? 'bg-primary/15 font-medium text-primary'
                                                 : 'text-sidebar-foreground/90 hover:bg-sidebar-accent/70',
                                             )}
@@ -681,9 +706,31 @@ function SidebarBody(props: Props) {
           )}
 
           {mode === 'activity' && (
-            <div className="px-2 py-3 text-[12px] leading-relaxed text-muted-foreground">
-              Riwayat perubahan workspace. Pilih item di panel utama untuk membuka halaman atau
-              tugas terkait.
+            <div className="px-1.5 pb-3 pt-1.5">
+              {activitySummaries.length === 0 ? (
+                <p className="px-2 py-2 text-[12px] leading-relaxed text-muted-foreground">
+                  Belum ada aktivitas. Perubahan tugas dan halaman akan muncul di sini.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-0.5">
+                  {activitySummaries.slice(0, 12).map((ev) => (
+                    <li
+                      key={ev.id}
+                      className="rounded-md px-2 py-1.5 text-[12px] leading-snug text-sidebar-foreground/90"
+                    >
+                      <div className="line-clamp-2">{ev.summary}</div>
+                      <div className="mt-0.5 text-[10px] text-muted-foreground">
+                        {new Date(ev.at).toLocaleString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </ScrollArea>

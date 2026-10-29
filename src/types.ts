@@ -19,14 +19,33 @@ export type BlockType =
 
 export type CalloutTone = 'info' | 'warn' | 'success'
 
-export type DbColumnType = 'text' | 'number' | 'select' | 'checkbox' | 'date'
+export type DbColumnType =
+  | 'text'
+  | 'number'
+  | 'select'
+  | 'multi_select'
+  | 'checkbox'
+  | 'date'
+  | 'relation'
+  | 'formula'
+  | 'rollup'
 export type DbView = 'table' | 'board' | 'calendar' | 'gallery' | 'list'
+/** Relation target: page:ID | task:ID | kosong */
+export type DbRelationKind = 'page' | 'task' | 'any'
+export type DbRollupProperty = 'title' | 'due' | 'priority' | 'status' | 'count'
 
 export type DbColumn = {
   id: string
   name: string
   type: DbColumnType
   options?: string[]
+  /** Untuk type relation */
+  relationKind?: DbRelationKind
+  /** Formula: pakai {Nama kolom} atau {colId}, ops angka + - * / ( ) */
+  formula?: string
+  /** Rollup dari kolom relation / multi_select */
+  rollupRelationColumnId?: string
+  rollupProperty?: DbRollupProperty
 }
 
 export type DbRow = {
@@ -148,6 +167,8 @@ export type Task = {
   description: string
   statusId: string
   priority: TaskPriority
+  /** Awal rentang Gantt (YYYY-MM-DD) */
+  startDate: string | null
   dueDate: string | null
   /** HH:mm lokal */
   dueTime: string | null
@@ -158,6 +179,8 @@ export type Task = {
   checklist: TaskChecklistItem[]
   attachments: TaskAttachment[]
   recur: TaskRecur
+  /** Menit tercatat (time tracking sederhana) */
+  timeSpentMinutes: number
   order: number
   createdAt: number
   updatedAt: number
@@ -196,8 +219,8 @@ export type TaskDropMode = 'before' | 'after' | 'into'
 export type TaskSort = 'order' | 'due' | 'priority' | 'title'
 export type TaskDueFilter = 'all' | 'today' | 'overdue' | 'upcoming' | 'none'
 
-export type AppMode = 'home' | 'notes' | 'tasks' | 'today' | 'activity'
-export type TaskView = 'list' | 'board' | 'calendar'
+export type AppMode = 'home' | 'notes' | 'tasks' | 'activity'
+export type TaskView = 'list' | 'board' | 'calendar' | 'gantt'
 
 export type Workspace = {
   version: 6

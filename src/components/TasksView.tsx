@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Columns3,
   FileText,
+  GanttChart,
   GripVertical,
   LayoutList,
   Link2,
@@ -19,8 +20,14 @@ import {
   User,
   X,
 } from 'lucide-react'
-import { CuPrimaryButton, ViewTabs } from '@/components/taskUi'
+import {
+  CuPrimaryButton,
+  StatusChip,
+  TaskCheck,
+  ViewTabs,
+} from '@/components/taskUi'
 import { DatePickerField } from '@/components/DateTimePickers'
+import { GanttView } from '@/components/GanttView'
 import { TaskDetailPanel } from '@/components/TaskDetailPanel'
 import {
   PRIORITY_META,
@@ -72,6 +79,9 @@ type Props = {
   onOpenPage: (pageId: string) => void
   focusTaskId?: string | null
   onFocusTaskConsumed?: () => void
+  /** Dari Beranda / rail Hari ini — filter due lintas list */
+  focusDueFilter?: TaskDueFilter | null
+  onFocusDueConsumed?: () => void
 }
 
 const GRID = 'tasks-grid grid items-center gap-x-2'
@@ -83,6 +93,7 @@ const VIEW_LABEL: Record<TaskView, string> = {
   list: 'List',
   board: 'Board',
   calendar: 'Calendar',
+  gantt: 'Gantt',
 }
 
 export function TasksView({
@@ -92,6 +103,8 @@ export function TasksView({
   onOpenPage,
   focusTaskId = null,
   onFocusTaskConsumed,
+  focusDueFilter = null,
+  onFocusDueConsumed,
 }: Props) {
   const [draft, setDraft] = useState('')
   const [dragId, setDragId] = useState<string | null>(null)
@@ -113,6 +126,7 @@ export function TasksView({
     return new Date(d.getFullYear(), d.getMonth(), 1)
   })
   const [tplEditorOpen, setTplEditorOpen] = useState(false)
+  const [statusCollapsed, setStatusCollapsed] = useState<Record<string, boolean>>({})
   const [tplDraft, setTplDraft] = useState({
     id: '',
     name: '',
@@ -140,34 +154,46 @@ export function TasksView({
     onFocusTaskConsumed?.()
   }, [focusTaskId])
 
+  useEffect(() => {
+    if (!focusDueFilter) return
+    setFilterDue(focusDueFilter)
+    onFocusDueConsumed?.()
+  }, [focusDueFilter])
+
   const list =
     workspace.taskLists.find((l) => l.id === workspace.activeTaskListId) ??
     workspace.taskLists[0]
   const statuses = openStatuses(workspace.taskStatuses)
-  const roots = useMemo(
-    () =>
-      filterAndSortTasks(list ? tasksInList(workspace, list.id) : [], {
-        statuses: workspace.taskStatuses,
-        statusId: filterStatus,
-        priority: filterPriority,
-        due: filterDue,
-        query: filterQuery,
-        sort: filterSort,
-        assignee: filterAssignee,
-        tag: filterTag,
-      }),
-    [
-      workspace,
-      list,
-      filterStatus,
-      filterPriority,
-      filterDue,
-      filterQuery,
-      filterSort,
-      filterAssignee,
-      filterTag,
-    ],
-  )
+  /** Filter hari ini / overdue = lintas list (menggantikan mode Today). */
+  const crossList = filterDue === 'today' || filterDue === 'overdue'
+  const roots = useMemo(() => {
+    const base = crossList
+      ? workspace.tasks.filter((t) => !t.parentTaskId)
+      : list
+        ? tasksInList(workspace, list.id)
+        : []
+    return filterAndSortTasks(base, {
+      statuses: workspace.taskStatuses,
+      statusId: filterStatus,
+      priority: filterPriority,
+      due: filterDue,
+      query: filterQuery,
+      sort: filterSort,
+      assignee: filterAssignee,
+      tag: filterTag,
+    })
+  }, [
+    workspace,
+    list,
+    crossList,
+    filterStatus,
+    filterPriority,
+    filterDue,
+    filterQuery,
+    filterSort,
+    filterAssignee,
+    filterTag,
+  ])
   const tags = useMemo(() => knownTags(workspace.tasks), [workspace.tasks])
   const assignees = useMemo(
     () => knownAssignees(workspace.tasks),
@@ -389,12 +415,31 @@ export function TasksView({
       <div className="relative z-10 shrink-0 border-b border-border/50 bg-background px-4 pt-3 sm:px-5">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5 text-[13px]">
-            <span className="truncate text-muted-foreground">{spaceName}</span>
-            <span className="text-muted-foreground/50">/</span>
-            <span className="truncate font-medium">
-              {list?.icon ? `${list.icon} ` : ''}
-              {list?.name ?? 'Tugas'}
-            </span>
+            {crossList ? (
+              <>
+                <span className="truncate text-muted-foreground">Semua list</span>
+                <span className="text-muted-foreground/50">/</span>
+                <span className="truncate font-medium">
+                  {filterDue === 'overdue' ? 'Terlambat' : 'Hari ini'}
+                </span>
+                <button
+                  type="button"
+                  className="ml-1 text-[11px] text-primary hover:underline"
+                  onClick={() => setFilterDue('all')}
+                >
+                  Kembali ke list
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="truncate text-muted-foreground">{spaceName}</span>
+                <span className="text-muted-foreground/50">/</span>
+                <span className="truncate font-medium">
+                  {list?.icon ? `${list.icon} ` : ''}
+                  {list?.name ?? 'Tugas'}
+                </span>
+              </>
+            )}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-1.5">
             {(overdueCount > 0 || todayCount > 0) && (
@@ -453,6 +498,11 @@ export function TasksView({
               id: 'calendar' as TaskView,
               label: VIEW_LABEL.calendar,
               icon: <CalendarDays className="size-3.5 opacity-70" />,
+            },
+            {
+              id: 'gantt' as TaskView,
+              label: VIEW_LABEL.gantt,
+              icon: <GanttChart className="size-3.5 opacity-70" />,
             },
           ]}
         />
@@ -706,18 +756,17 @@ export function TasksView({
       </div>
 
       {workspace.taskView === 'list' && (
-        <div className="segara-scroll -mx-1 overflow-x-auto px-1">
+        <div className="overflow-hidden rounded-lg border border-border/50 bg-card/20">
           <div
             className={cn(
               GRID,
-              'border-b border-border/60 px-1 pb-1.5 text-[11px] font-medium text-muted-foreground',
+              'border-b border-border/50 px-2 py-2 text-[11px] font-medium text-muted-foreground',
             )}
           >
-            <span className="pl-[2.75rem]">Nama</span>
+            <span className="pl-10">Name</span>
             <span className="tasks-col-assignee">Assignee</span>
-            <span>Status</span>
-            <span className="tasks-col-priority">Prioritas</span>
-            <span>Due</span>
+            <span>Due date</span>
+            <span className="tasks-col-priority">Priority</span>
             <span />
           </div>
           {roots.length === 0 && (
@@ -725,30 +774,83 @@ export function TasksView({
               Belum ada tugas di list ini.
             </p>
           )}
-          <ul>{roots.map((task) => renderTree(task, 0))}</ul>
+          {statuses.map((status) => {
+            const column = roots.filter((t) => t.statusId === status.id)
+            if (filterStatus !== 'all' && filterStatus !== status.id) return null
+            const open = statusCollapsed[status.id] !== true
+            return (
+              <section
+                key={status.id}
+                className="border-b border-border/30 last:border-b-0"
+              >
+                <div className="flex items-center gap-2 px-2 py-2.5">
+                  <button
+                    type="button"
+                    className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+                    onClick={() =>
+                      setStatusCollapsed((prev) => ({
+                        ...prev,
+                        [status.id]: !(prev[status.id] === true),
+                      }))
+                    }
+                    aria-label={open ? 'Ciutkan' : 'Bentangkan'}
+                  >
+                    <ChevronDown
+                      className={cn(
+                        'size-3.5 transition-transform',
+                        !open && '-rotate-90',
+                      )}
+                    />
+                  </button>
+                  <StatusChip status={status} />
+                  <span className="text-[12px] tabular-nums text-muted-foreground">
+                    {column.length}
+                  </span>
+                </div>
+                {open && (
+                  <>
+                    <ul>{column.map((task) => renderTree(task, 0))}</ul>
+                    <button
+                      type="button"
+                      className="flex h-9 w-full items-center gap-1.5 px-3 pl-10 text-[12px] text-muted-foreground hover:bg-muted/30 hover:text-foreground"
+                      onClick={() => {
+                        const listId =
+                          workspace.activeTaskListId || workspace.taskLists[0]?.id
+                        if (!listId) return
+                        const task = createTask({
+                          listId,
+                          statusId: status.id,
+                          title: '',
+                          priority: 'normal',
+                        })
+                        onPatch({ tasks: [task, ...workspace.tasks] })
+                        setDetailId(task.id)
+                      }}
+                    >
+                      <Plus className="size-3.5" /> Add Task
+                    </button>
+                  </>
+                )}
+              </section>
+            )
+          })}
         </div>
       )}
 
       {workspace.taskView === 'board' && (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(11.5rem,1fr))] gap-2.5">
+        <div className="flex gap-3 overflow-x-auto pb-2">
           {statuses.map((status) => {
             const column = roots.filter((t) => t.statusId === status.id)
             return (
               <div
                 key={status.id}
-                className="flex min-h-44 flex-col rounded-lg bg-muted/25"
+                className="flex w-64 shrink-0 flex-col rounded-lg border border-border/50 bg-card/20"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => onDropStatus(status.id)}
               >
-                <div className="flex items-center justify-between px-2.5 py-2">
-                  <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold">
-                    <span
-                      className="size-2 rounded-full"
-                      style={{ background: status.color }}
-                    />
-                    {status.name}
-                  </span>
-                  <span className="text-[11px] tabular-nums text-muted-foreground">
+                <div className="flex items-center gap-2 border-b border-border/40 px-3 py-2.5">
+                  <StatusChip status={status} />
+                  <span className="text-[12px] tabular-nums text-muted-foreground">
                     {column.length}
                   </span>
                 </div>
@@ -894,6 +996,15 @@ export function TasksView({
           }
           onOpenDetail={setDetailId}
           onSetDue={(taskId, dueDate) => updateTask(taskId, { dueDate })}
+        />
+      )}
+
+      {workspace.taskView === 'gantt' && (
+        <GanttView
+          tasks={roots}
+          statuses={statuses}
+          onOpenTask={setDetailId}
+          onPatchTask={(id, partial) => updateTask(id, partial)}
         />
       )}
 
@@ -1302,7 +1413,6 @@ function TaskRow({
   onDrop: (e: DragEvent<HTMLElement>) => void
 }) {
   const done = isDoneStatus(statuses, task.statusId)
-  const status = statuses.find((s) => s.id === task.statusId)
   const linked = task.pageId ? pages.find((p) => p.id === task.pageId) : null
   const [tagDraft, setTagDraft] = useState('')
   const progress = checklistProgress(task)
@@ -1370,6 +1480,21 @@ function TaskRow({
               <ChevronRight className="size-3.5" />
             )}
           </button>
+          <TaskCheck
+            done={done}
+            onToggle={() => {
+              if (done) {
+                const openId =
+                  statuses.find((s) => s.category === 'open')?.id ?? statuses[0]?.id
+                if (openId) onChange({ statusId: openId })
+              } else {
+                const doneId =
+                  statuses.find((s) => s.category === 'done')?.id ??
+                  statuses.find((s) => s.category === 'closed')?.id
+                if (doneId) onChange({ statusId: doneId })
+              }
+            }}
+          />
           <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
             <input
               value={task.title}
@@ -1464,38 +1589,25 @@ function TaskRow({
           className="tasks-col-assignee task-cell h-8 min-w-0 w-full truncate text-[12px] text-muted-foreground"
         />
 
-        <div className="min-w-0">
-          <CellMenu
-            label="Status"
-            value={
-              <span className="inline-flex min-w-0 items-center gap-1.5">
-                <span
-                  className="size-1.5 shrink-0 rounded-full"
-                  style={{ background: status?.color ?? '#64748b' }}
-                />
-                <span className="truncate">{status?.name ?? '—'}</span>
-              </span>
-            }
-          >
-            {statuses.map((s) => (
-              <DropdownMenuItem key={s.id} onClick={() => onChange({ statusId: s.id })}>
-                <span
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ background: s.color }}
-                />
-                <span className="flex-1">{s.name}</span>
-                {s.id === task.statusId && <Check className="size-3.5 opacity-70" />}
-              </DropdownMenuItem>
-            ))}
-          </CellMenu>
-        </div>
+        <DatePickerField
+          compact
+          value={task.dueDate}
+          onChange={(dueDate) => onChange({ dueDate })}
+          placeholder="—"
+          className={cn(
+            'task-cell text-[12px]',
+            ds === 'overdue' && 'font-medium text-red-500',
+            ds === 'today' && 'font-medium text-amber-500',
+          )}
+          aria-label="Due"
+        />
 
         <div className="tasks-col-priority min-w-0">
           <CellMenu
             label="Prioritas"
             value={
               <span
-                className="truncate"
+                className="inline-flex items-center gap-1 truncate"
                 style={{
                   color:
                     task.priority === 'none'
@@ -1528,19 +1640,6 @@ function TaskRow({
           </CellMenu>
         </div>
 
-        <DatePickerField
-          compact
-          value={task.dueDate}
-          onChange={(dueDate) => onChange({ dueDate })}
-          placeholder="—"
-          className={cn(
-            'task-cell',
-            ds === 'overdue' && 'text-destructive',
-            ds === 'today' && 'text-amber-600 dark:text-amber-400',
-          )}
-          aria-label="Due"
-        />
-
         <div className="flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -1556,6 +1655,22 @@ function TaskRow({
             <DropdownMenuItem onClick={onOpenDetail}>
               <PanelRight className="size-3.5" /> Buka detail
             </DropdownMenuItem>
+            {statuses.map((s) => (
+              <DropdownMenuItem
+                key={s.id}
+                onClick={() => onChange({ statusId: s.id })}
+              >
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ background: s.color }}
+                />
+                {s.name}
+                {s.id === task.statusId && (
+                  <Check className="ml-auto size-3.5 opacity-70" />
+                )}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onAddSubtask}>
               <ListTree className="size-3.5" /> Tambah sub-tugas
             </DropdownMenuItem>

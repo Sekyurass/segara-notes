@@ -24,6 +24,8 @@ type Props = {
   pages: Page[]
   breadcrumb: Page[]
   linkedTasks?: Task[]
+  /** Semua task workspace — untuk kolom relation DB */
+  allTasks?: Task[]
   taskStatuses?: TaskStatus[]
   onChangePage: (partial: Partial<Page>) => void
   onChangeBlocks: (blocks: Block[]) => void
@@ -34,6 +36,7 @@ type Props = {
   onPromoteToTask?: (title: string) => void
   onCreateLinkedTask?: () => void
   onUnlinkTask?: (taskId: string) => void
+  onOpenTask?: (taskId: string) => void
   onOpenTasks?: () => void
   authorName?: string
   presencePeers?: PresencePeer[]
@@ -44,6 +47,7 @@ export function Editor({
   pages,
   breadcrumb,
   linkedTasks = [],
+  allTasks = [],
   taskStatuses = [],
   onChangePage,
   onChangeBlocks,
@@ -54,6 +58,7 @@ export function Editor({
   onPromoteToTask,
   onCreateLinkedTask,
   onUnlinkTask,
+  onOpenTask,
   onOpenTasks,
   authorName = 'Kamu',
   presencePeers = [],
@@ -429,6 +434,7 @@ export function Editor({
               key={block.id}
               block={block}
               pages={pages}
+              tasks={allTasks}
               numberLabel={numberedLabel(page.blocks, block.id)}
               autoFocus={focusId.current === block.id}
               isDragging={dragId === block.id}
@@ -445,6 +451,7 @@ export function Editor({
               onDelete={() => removeBlock(block.id)}
               onTurnInto={(type) => turnInto(block.id, type)}
               onMentionPage={(target) => onSelectPage(target.id)}
+              onOpenTask={onOpenTask}
               onPromoteToTask={onPromoteToTask}
               onDragStart={(id) => {
                 setDragId(id)

@@ -20,7 +20,33 @@ const prisma = new PrismaClient({ adapter })
 const app = express()
 const port = Number(process.env.PORT ?? 8787)
 
-app.use(cors())
+/** Jika di-set, semua endpoint workspace + WS butuh token yang sama. */
+const API_TOKEN = (process.env.SEGARA_API_TOKEN ?? '').trim()
+
+const CORS_ORIGINS = (
+  process.env.SEGARA_CORS_ORIGIN ??
+  'http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173'
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin) {
+        cb(null, true)
+        return
+      }
+      if (CORS_ORIGINS.includes('*') || CORS_ORIGINS.includes(origin)) {
+        cb(null, true)
+        return
+      }
+      cb(new Error(`CORS blocked: ${origin}`))
+    },
+    credentials: true,
+  }),
+)
 app.use(express.json({ limit: '2mb' }))
 
 type Peer = {
@@ -33,9 +59,35 @@ type Peer = {
 }
 const peers = new Set<Peer>()
 
-function workspaceIdOf(req: express.Request): string {
-  const id = String(req.headers['x-workspace-id'] ?? 'default').trim()
+function sanitizeWorkspaceId(raw: string): string {
+  const id = raw.replace(/[^a-zA-Z0-9._:-]/g, '').slice(0, 64)
   return id || 'default'
+}
+
+function workspaceIdOf(req: express.Request): string {
+  return sanitizeWorkspaceId(String(req.headers['x-workspace-id'] ?? 'default').trim())
+}
+
+function extractApiToken(req: express.Request): string {
+  const header = String(req.headers.authorization ?? '')
+  if (header.startsWith('Bearer ')) return header.slice(7).trim()
+  return String(req.headers['x-api-token'] ?? '').trim()
+}
+
+function requireAuth(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+): void {
+  if (!API_TOKEN) {
+    next()
+    return
+  }
+  if (extractApiToken(req) === API_TOKEN) {
+    next()
+    return
+  }
+  res.status(401).json({ error: 'unauthorized' })
 }
 
 function peerList(workspaceId?: string) {
@@ -60,10 +112,15 @@ function broadcast(payload: object, exceptClientId?: string, workspaceId?: strin
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'segara-notes-api', peers: peers.size })
+  res.json({
+    ok: true,
+    service: 'segara-notes-api',
+    peers: peers.size,
+    authRequired: Boolean(API_TOKEN),
+  })
 })
 
-app.get('/api/workspace/meta', async (req, res) => {
+app.get('/api/workspace/meta', requireAuth, async (req, res) => {
   try {
     const id = workspaceIdOf(req)
     const row = await prisma.workspaceSnapshot.findUnique({ where: { id } })
@@ -78,7 +135,7 @@ app.get('/api/workspace/meta', async (req, res) => {
   }
 })
 
-app.get('/api/workspace', async (req, res) => {
+app.get('/api/workspace', requireAuth, async (req, res) => {
   try {
     const id = workspaceIdOf(req)
     const row = await prisma.workspaceSnapshot.findUnique({ where: { id } })
@@ -93,7 +150,7 @@ app.get('/api/workspace', async (req, res) => {
   }
 })
 
-app.put('/api/workspace', async (req, res) => {
+app.put('/api/workspace', requireAuth, async (req, res) => {
   try {
     const payload = req.body
     if (!payload || typeof payload !== 'object' || !Array.isArray(payload.pages)) {
@@ -127,7 +184,7 @@ app.put('/api/workspace', async (req, res) => {
   }
 })
 
-app.post('/api/share', async (req, res) => {
+app.post('/api/share', requireAuth, async (req, res) => {
   try {
     const pageId = String(req.body?.pageId ?? '')
     const canEdit = Boolean(req.body?.canEdit)
@@ -161,6 +218,7 @@ app.post('/api/share', async (req, res) => {
   }
 })
 
+/** Share link = auth sendiri; tidak butuh API token. */
 app.get('/api/share/:token', async (req, res) => {
   try {
     const link = await prisma.shareLink.findUnique({ where: { token: req.params.token } })
@@ -252,7 +310,21 @@ app.put('/api/share/:token', async (req, res) => {
 const server = http.createServer(app)
 const wss = new WebSocketServer({ server, path: '/ws' })
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  if (API_TOKEN) {
+    try {
+      const url = new URL(req.url ?? '/', `http://localhost:${port}`)
+      const token = url.searchParams.get('token') ?? ''
+      if (token !== API_TOKEN) {
+        ws.close(4401, 'unauthorized')
+        return
+      }
+    } catch {
+      ws.close(4401, 'unauthorized')
+      return
+    }
+  }
+
   const peer: Peer = {
     ws,
     clientId: crypto.randomUUID(),
@@ -279,7 +351,7 @@ wss.on('connection', (ws) => {
       if (msg.type === 'hello' && typeof msg.clientId === 'string' && msg.clientId) {
         peer.clientId = msg.clientId
         if (typeof msg.workspaceId === 'string' && msg.workspaceId) {
-          peer.workspaceId = msg.workspaceId
+          peer.workspaceId = sanitizeWorkspaceId(msg.workspaceId)
         }
         return
       }
@@ -288,7 +360,7 @@ wss.on('connection', (ws) => {
         peer.pageId = typeof msg.pageId === 'string' ? msg.pageId : null
         if (typeof msg.color === 'string') peer.color = msg.color
         if (typeof msg.workspaceId === 'string' && msg.workspaceId) {
-          peer.workspaceId = msg.workspaceId
+          peer.workspaceId = sanitizeWorkspaceId(msg.workspaceId)
         }
         broadcast(peerList(peer.workspaceId), undefined, peer.workspaceId)
         return
@@ -311,4 +383,10 @@ server.listen(port, () => {
   console.log(`Segara Notes API → http://localhost:${port}`)
   console.log(`WebSocket → ws://localhost:${port}/ws`)
   console.log(`SQLite → ${dbPath}`)
+  console.log(
+    API_TOKEN
+      ? 'Auth: SEGARA_API_TOKEN aktif (Bearer / X-Api-Token)'
+      : 'Auth: terbuka (set SEGARA_API_TOKEN untuk mengunci API)',
+  )
+  console.log(`CORS origins → ${CORS_ORIGINS.join(', ')}`)
 })
